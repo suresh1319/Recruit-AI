@@ -1,0 +1,88 @@
+import User from '../models/User.js';
+import Candidate from '../models/Candidate.js';
+import connectDB from '../db/connect.js';
+
+export const syncUser = async (req, res) => {
+    try {
+        const { id, email_addresses, first_name, last_name, image_url, public_metadata, firstName, lastName, imageUrl, emailAddresses, role } = req.body;
+
+        const actualId = id;
+        const actualFirstName = first_name || firstName || '';
+        const actualLastName = last_name || lastName || '';
+        const actualImageUrl = image_url || imageUrl || '';
+        const primaryEmail = (email_addresses && email_addresses[0]?.email_address) || (emailAddresses && emailAddresses[0]?.emailAddress) || '';
+
+        if (!actualId) return res.status(400).json({ error: 'Missing Clerk ID' });
+
+        let roleUpdate = {};
+        if (public_metadata && public_metadata.role) {
+            roleUpdate.role = public_metadata.role;
+        } else if (role) {
+            roleUpdate.role = role;
+        }
+
+        await connectDB();
+
+        // Build update object
+        const updateFields = {
+            clerkId: actualId,
+            email: primaryEmail,
+            firstName: actualFirstName,
+            lastName: actualLastName,
+            imageUrl: actualImageUrl
+        };
+
+        if (roleUpdate.role) {
+            updateFields.role = roleUpdate.role;
+        }
+
+        // Primary sync logic
+        const user = await User.findOneAndUpdate(
+            { clerkId: actualId },
+            { $set: updateFields },
+            { upsert: true, returnDocument: 'after' }
+        );
+
+        // Fail-safe: if role is still missing, default to candidate
+        if (!user.role) {
+            user.role = 'candidate';
+            await user.save();
+        }
+
+        const userRole = user.role;
+
+        // If they are a candidate, make sure they have a Candidate profile
+        if (userRole === 'candidate') {
+            await Candidate.findOneAndUpdate(
+                { clerkId: actualId },
+                {
+                    clerkId: actualId,
+                    name: `${actualFirstName} ${actualLastName}`.trim(),
+                    email: primaryEmail
+                },
+                { upsert: true }
+            );
+        }
+
+        res.status(200).json({ message: 'User synced successfully', user });
+    } catch (error) {
+        console.error('User sync error:', error);
+        res.status(500).json({ error: 'Failed to sync user' });
+    }
+};
+
+export const getCurrentUser = async (req, res) => {
+    try {
+        const { clerkId } = req.query;
+        if (!clerkId) return res.status(400).json({ error: 'Missing clerkId' });
+
+        await connectDB();
+        const user = await User.findOne({ clerkId });
+        if (!user) return res.status(404).json({ error: 'User not found' });
+
+        res.status(200).json(user);
+    } catch (error) {
+        console.error('Fetch user me error:', error);
+        res.status(500).json({ error: 'Failed to fetch user profile' });
+    }
+};
