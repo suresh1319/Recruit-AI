@@ -71,13 +71,21 @@ const LandingPage = () => {
                     <a href="#platform" className="hover:text-white transition-colors">Platform</a>
                     <a href="#about" className="hover:text-white transition-colors">About</a>
                 </div>
-                <div className="flex items-center gap-4">
-                    <Link to="/sign-in">
-                        <Button variant="ghost" className="text-slate-300 hover:text-white hover:bg-white/5 font-medium">Log In</Button>
+                <div className="flex items-center gap-2">
+                    <Link to="/sign-in" onClick={() => handleRoleSelection('candidate')}>
+                        <Button variant="ghost" className="text-slate-300 hover:text-white hover:bg-white/5 font-medium text-sm hidden md:flex">
+                            Candidate Login
+                        </Button>
+                    </Link>
+                    <div className="w-px h-4 bg-white/20 hidden md:block mx-2"></div>
+                    <Link to="/sign-in" onClick={() => handleRoleSelection('recruiter')}>
+                        <Button variant="ghost" className="text-slate-300 hover:text-white hover:bg-white/5 font-medium text-sm">
+                            Recruiter Login
+                        </Button>
                     </Link>
                     <Link to="/sign-up" onClick={() => handleRoleSelection('recruiter')}>
-                        <Button className="bg-indigo-600 hover:bg-indigo-700 text-white border-0 shadow-[0_0_25px_rgba(79,70,229,0.4)] px-6 font-bold">
-                            Hire Talent
+                        <Button className="bg-indigo-600 hover:bg-indigo-700 text-white border-0 shadow-[0_0_25px_rgba(79,70,229,0.4)] px-6 font-bold ml-2">
+                            Get Started
                         </Button>
                     </Link>
                 </div>
@@ -110,18 +118,42 @@ const LandingPage = () => {
                             From autonomous voice screening to smart ranking, we help you build high-performance teams at 10x speed.
                         </p>
 
-                        <div className="flex flex-col sm:flex-row gap-5 pt-4">
-                            <Link to="/sign-up" onClick={() => handleRoleSelection('recruiter')}>
-                                <Button size="lg" className="h-16 px-10 text-lg bg-white text-black hover:bg-slate-200 transition-all gap-2 group font-bold rounded-2xl">
-                                    Get Started
-                                    <ArrowRight className="h-5 w-5 ml-2 group-hover:translate-x-1 transition-transform" />
-                                </Button>
-                            </Link>
-                            <Link to="/sign-up" onClick={() => handleRoleSelection('candidate')}>
-                                <Button size="lg" variant="outline" className="h-16 px-10 text-lg border-white/10 text-slate-300 hover:bg-white/5 transition-all font-bold rounded-2xl">
-                                    I'm a Candidate
-                                </Button>
-                            </Link>
+                        <div className="flex flex-col sm:flex-row gap-4 pt-4">
+                            {/* Recruiter Path */}
+                            <div className="flex-1 p-6 rounded-3xl bg-gradient-to-br from-indigo-500/10 to-indigo-900/10 border border-indigo-500/20 hover:border-indigo-500/40 transition-colors">
+                                <h3 className="text-lg font-bold text-white mb-2 flex items-center gap-2"><Briefcase className="w-5 h-5 text-indigo-400"/> For Recruiters</h3>
+                                <p className="text-sm text-slate-400 mb-6">Hire 10x faster with AI screening.</p>
+                                <div className="flex gap-3">
+                                    <Link className="flex-1" to="/sign-up" onClick={() => handleRoleSelection('recruiter')}>
+                                        <Button className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold">
+                                            Sign Up
+                                        </Button>
+                                    </Link>
+                                    <Link className="flex-1" to="/sign-in" onClick={() => handleRoleSelection('recruiter')}>
+                                        <Button variant="ghost" className="w-full border border-white/20 bg-transparent hover:bg-white/10 text-white">
+                                            Log In
+                                        </Button>
+                                    </Link>
+                                </div>
+                            </div>
+
+                            {/* Candidate Path */}
+                            <div className="flex-1 p-6 rounded-3xl bg-gradient-to-br from-fuchsia-500/10 to-fuchsia-900/10 border border-fuchsia-500/20 hover:border-fuchsia-500/40 transition-colors">
+                                <h3 className="text-lg font-bold text-white mb-2 flex items-center gap-2"><Users className="w-5 h-5 text-fuchsia-400"/> For Candidates</h3>
+                                <p className="text-sm text-slate-400 mb-6">Take interviews & track applications.</p>
+                                <div className="flex gap-3">
+                                    <Link className="flex-1" to="/sign-up" onClick={() => handleRoleSelection('candidate')}>
+                                        <Button className="w-full bg-fuchsia-600 hover:bg-fuchsia-700 text-white font-bold">
+                                            Sign Up
+                                        </Button>
+                                    </Link>
+                                    <Link className="flex-1" to="/sign-in" onClick={() => handleRoleSelection('candidate')}>
+                                        <Button variant="ghost" className="w-full border border-white/20 bg-transparent hover:bg-white/10 text-white">
+                                            Log In
+                                        </Button>
+                                    </Link>
+                                </div>
+                            </div>
                         </div>
 
                         <div className="flex items-center gap-6 pt-10 border-t border-white/5">

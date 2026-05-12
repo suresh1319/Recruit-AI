@@ -19,10 +19,8 @@ import ttsRoutes from './src/routes/ttsRoutes.js';
 
 const app = express();
 const httpServer = createServer(app);
-const allowedOrigins = (process.env.CLIENT_URL || 'http://localhost:5173')
-    .split(',')
-    .map(origin => origin.trim())
-    .filter(Boolean);
+const envOrigins = process.env.CLIENT_URL ? process.env.CLIENT_URL.split(',').map(origin => origin.trim()) : [];
+const allowedOrigins = [...new Set([...envOrigins, 'http://localhost:5173'])].filter(Boolean);
 const io = new Server(httpServer, {
     cors: {
         origin: allowedOrigins,
