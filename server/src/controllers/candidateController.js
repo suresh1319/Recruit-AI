@@ -11,7 +11,7 @@ const require = createRequire(import.meta.url);
 const pdfParse = require('pdf-parse');
 const PUBLIC_API_URL = process.env.PUBLIC_API_URL || `http://localhost:${process.env.PORT || 5001}`;
 const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:5173';
-const PRIMARY_CLIENT_URL = CLIENT_URL.split(',')[0].trim();
+const PRIMARY_CLIENT_URL = CLIENT_URL.split(',')[0].trim().replace(/\/$/, '');
 export const getCandidateMe = async (req, res) => {
     try {
         const { clerkId } = req.query;
