@@ -250,13 +250,35 @@ export const sendInvite = async (req, res) => {
         const candidate = await Candidate.findById(candidateId);
         if (!candidate) return res.status(404).json({ error: 'Candidate not found' });
 
+        // Ensure email is sent only once
+        if (candidate.status === 'invited' || candidate.interviewLink) {
+            return res.status(400).json({ error: 'An invite has already been sent to this candidate.' });
+        }
+
+        if (!candidate.email) {
+            return res.status(400).json({ error: 'Candidate does not have an email address.' });
+        }
+
         const job = await Job.findById(jobId);
         const interviewId = `${candidate.name.toLowerCase().replace(/\s+/g, '-')}-${Date.now()}`;
 
         // Deadline logic
         const expiresAt = new Date();
         expiresAt.setDate(expiresAt.getDate() + deadlineDays);
+        
+        const interviewLink = `${CLIENT_URL}/interview/${interviewId}`;
 
+        // Attempt to send the email first, before saving to database
+        const subject = `Interview Invitation for ${job?.title || candidate.role}`;
+        const html = `<p>Hi ${candidate.name},</p><p>You are invited for an interview. Deadline: ${expiresAt.toLocaleDateString()}</p><p><a href="${interviewLink}">${interviewLink}</a></p>`;
+        
+        const emailSent = await sendEmail(candidate.email, subject, html, html);
+
+        if (!emailSent) {
+            return res.status(500).json({ error: 'Failed to send email. Please check your email server credentials.' });
+        }
+
+        // If email was successful, then save to DB
         await Interview.create({
             interviewId,
             jobTitle: job?.title || candidate.role,
@@ -267,14 +289,8 @@ export const sendInvite = async (req, res) => {
         });
 
         candidate.status = 'invited';
-        candidate.interviewLink = `${CLIENT_URL}/interview/${interviewId}`;
+        candidate.interviewLink = interviewLink;
         await candidate.save();
-
-        if (candidate.email) {
-            const subject = `Interview Invitation for ${job?.title || candidate.role}`;
-            const html = `<p>Hi ${candidate.name},</p><p>You are invited for an interview. Deadline: ${expiresAt.toLocaleDateString()}</p><p><a href="${candidate.interviewLink}">${candidate.interviewLink}</a></p>`;
-            await sendEmail(candidate.email, subject, html, html);
-        }
 
         res.status(200).json({ message: 'Invite sent', interviewLink: candidate.interviewLink, expiresAt });
     } catch (error) {
