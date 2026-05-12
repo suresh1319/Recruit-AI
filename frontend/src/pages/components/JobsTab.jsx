@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
 import { maskEmail } from '@/lib/utils';
+import { API_BASE_URL } from '@/lib/api';
 
 export default function JobsTab() {
     const { user } = useUser();
@@ -47,7 +48,7 @@ export default function JobsTab() {
     const fetchJobs = async () => {
         if (!user) return;
         try {
-            const response = await fetch(`http://localhost:5001/api/jobs?clerkId=${user.id}`);
+            const response = await fetch(`${API_BASE_URL}/api/jobs?clerkId=${user.id}`);
             const data = await response.json();
             setJobs(data);
         } catch (error) {
@@ -62,33 +63,45 @@ export default function JobsTab() {
 
         setIsGenerating(true);
         try {
-            const response = await fetch('http://localhost:5001/api/jobs/generate', {
+            const response = await fetch(`${API_BASE_URL}/api/jobs/generate`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ prompt: jobPrompt })
             });
 
+            const data = await response.json();
             if (response.ok) {
-                const data = await response.json();
-                setFormData({
+                const workType = ['Work from Home', 'On-site', 'Hybrid'].includes(data.workType)
+                    ? data.workType
+                    : data.location?.toLowerCase?.().includes('remote')
+                        ? 'Work from Home'
+                        : formData.workType;
+
+                setFormData(prev => ({
+                    ...prev,
                     title: data.title || '',
                     department: data.department || '',
-                    location: data.location || '',
-                    employmentType: data.employmentType || 'Full-time',
+                    workType: workType || '',
+                    city: workType === 'Work from Home' ? '' : (data.city || data.location || ''),
+                    employmentType: data.employmentType || data.type || 'Full-time',
                     experienceLevel: data.experienceLevel || 'Mid',
-                    salaryMin: data.salaryMin || '',
-                    salaryMax: data.salaryMax || '',
+                    salaryMin: data.salaryMin ? String(data.salaryMin) : '',
+                    salaryMax: data.salaryMax ? String(data.salaryMax) : '',
                     currency: data.currency || 'USD',
                     period: data.period || 'year',
                     description: data.description || '',
-                    responsibilities: data.responsibilities?.join(', ') || '',
-                    requirements: data.requirements?.join(', ') || '',
-                    benefits: data.benefits?.join(', ') || '',
+                    responsibilities: Array.isArray(data.responsibilities) ? data.responsibilities.join(', ') : (data.responsibilities || ''),
+                    requirements: Array.isArray(data.requirements) ? data.requirements.join(', ') : (data.requirements || ''),
+                    benefits: Array.isArray(data.benefits) ? data.benefits.join(', ') : (data.benefits || ''),
                     status: 'draft'
-                });
+                }));
+                toast.success('Job details generated. Review them before creating the job.');
+            } else {
+                toast.error(data.error || 'Failed to generate job details.');
             }
         } catch (error) {
             console.error('Auto-fill error:', error);
+            toast.error('Failed to generate job details.');
         } finally {
             setIsGenerating(false);
         }
@@ -112,7 +125,7 @@ export default function JobsTab() {
             : `${formData.workType} · ${formData.city.trim()}`;
 
         try {
-            const response = await fetch('http://localhost:5001/api/jobs', {
+            const response = await fetch(`${API_BASE_URL}/api/jobs`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -163,7 +176,7 @@ export default function JobsTab() {
 
     const handleStatusChange = async (jobId, newStatus) => {
         try {
-            const response = await fetch(`http://localhost:5001/api/jobs/${jobId}`, {
+            const response = await fetch(`${API_BASE_URL}/api/jobs/${jobId}`, {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ status: newStatus })
@@ -179,7 +192,7 @@ export default function JobsTab() {
     const handleMatchCandidates = async (jobId) => {
         setMatchingJobId(jobId);
         try {
-            const response = await fetch(`http://localhost:5001/api/jobs/${jobId}/match-candidates`, {
+            const response = await fetch(`${API_BASE_URL}/api/jobs/${jobId}/match-candidates`, {
                 method: 'POST'
             });
             if (response.ok) {
@@ -210,7 +223,7 @@ export default function JobsTab() {
 
     const handleViewCandidates = async (job) => {
         try {
-            const response = await fetch(`http://localhost:5001/api/jobs/${job._id}/matched-candidates`);
+            const response = await fetch(`${API_BASE_URL}/api/jobs/${job._id}/matched-candidates`);
             if (response.ok) {
                 const data = await response.json();
                 // If it's the old array format (fallback), handle it gracefully
@@ -250,7 +263,7 @@ export default function JobsTab() {
                                 className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg gap-1.5 h-8 w-full"
                                 onClick={async () => {
                                     try {
-                                        const response = await fetch(`http://localhost:5001/api/candidates/${candidate._id}/send-invite`, {
+                                        const response = await fetch(`${API_BASE_URL}/api/candidates/${candidate._id}/send-invite`, {
                                             method: 'POST',
                                             headers: { 'Content-Type': 'application/json' },
                                             body: JSON.stringify({ jobId: selectedJob._id })

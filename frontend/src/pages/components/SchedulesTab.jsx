@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { CalendarClock, Loader2, Bot, Mail, MessageSquare, CheckCircle2, ChevronDown, Check, X } from 'lucide-react';
 import * as Collapsible from '@radix-ui/react-collapsible';
+import { API_BASE_URL } from '@/lib/api';
 
 export default function SchedulesTab() {
     const [interviews, setInterviews] = useState([]);
@@ -16,7 +17,7 @@ export default function SchedulesTab() {
 
     const fetchInterviews = async () => {
         try {
-            const response = await fetch('http://localhost:5001/api/interviews/all');
+            const response = await fetch(`${API_BASE_URL}/api/interviews/all`);
             const data = await response.json();
             setInterviews(data);
         } catch (error) {
@@ -33,7 +34,7 @@ export default function SchedulesTab() {
         }
         setIsRegenerating(prev => ({ ...prev, [rawId]: true }));
         try {
-            const response = await fetch(`http://localhost:5001/api/interviews/${interviewId}/analyze`, {
+            const response = await fetch(`${API_BASE_URL}/api/interviews/${interviewId}/analyze`, {
                 method: 'POST'
             });
             if (response.ok) {

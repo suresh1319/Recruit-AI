@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { ArrowLeft, Mail, Phone, Briefcase, Calendar, Loader2, Trash2 } from 'lucide-react';
 import { maskEmail, maskPhoneNumber } from '@/lib/utils';
+import { API_BASE_URL } from '@/lib/api';
 
 export default function CandidateDetails() {
     const { id } = useParams();
@@ -19,13 +20,13 @@ export default function CandidateDetails() {
             setIsLoading(true);
             try {
                 // Fetch candidate details
-                const candRes = await fetch(`http://localhost:5001/api/candidates/${id}`);
+                const candRes = await fetch(`${API_BASE_URL}/api/candidates/${id}`);
                 const data = await candRes.json();
                 
                 // Fetch recruiter's jobs if user is logged in
                 let jobs = [];
                 if (user) {
-                    const jobsRes = await fetch(`http://localhost:5001/api/jobs?clerkId=${user.id}`);
+                    const jobsRes = await fetch(`${API_BASE_URL}/api/jobs?clerkId=${user.id}`);
                     jobs = await jobsRes.json();
                     setRecruiterJobs(jobs);
                 }

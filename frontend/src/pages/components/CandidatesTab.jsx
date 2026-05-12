@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
 import { maskEmail, maskPhoneNumber } from '@/lib/utils';
+import { API_BASE_URL } from '@/lib/api';
 
 export default function CandidatesTab() {
     const navigate = useNavigate();
@@ -42,12 +43,12 @@ export default function CandidatesTab() {
             setIsLoading(true);
             try {
                 // Fetch recruiter's jobs
-                const jobsRes = await fetch(`http://localhost:5001/api/jobs?clerkId=${user.id}`);
+                const jobsRes = await fetch(`${API_BASE_URL}/api/jobs?clerkId=${user.id}`);
                 const jobs = await jobsRes.json();
                 setRecruiterJobs(jobs);
 
                 // Fetch candidates
-                const candidatesRes = await fetch('http://localhost:5001/api/candidates');
+                const candidatesRes = await fetch(`${API_BASE_URL}/api/candidates`);
                 const data = await candidatesRes.json();
                 
                 setCandidates(data.map(mapCandidateData));
@@ -107,7 +108,7 @@ export default function CandidatesTab() {
         }
 
         try {
-            const response = await fetch(`http://localhost:5001/api/candidates/${candidateId}/send-invite`, {
+            const response = await fetch(`${API_BASE_URL}/api/candidates/${candidateId}/send-invite`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ jobId: selectedJobId, deadlineDays })
@@ -136,7 +137,7 @@ export default function CandidatesTab() {
         uploadData.append('resume', file);
 
         try {
-            const response = await fetch('http://localhost:5001/api/candidates/parse-resume', {
+            const response = await fetch(`${API_BASE_URL}/api/candidates/parse-resume`, {
                 method: 'POST',
                 body: uploadData,
             });
@@ -175,7 +176,7 @@ export default function CandidatesTab() {
                     : formData.projects
             };
 
-            const response = await fetch('http://localhost:5001/api/candidates', {
+            const response = await fetch(`${API_BASE_URL}/api/candidates`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(processedFormData)
@@ -183,7 +184,7 @@ export default function CandidatesTab() {
             if (response.ok) {
                 const result = await response.json();
                 // Fetch updated candidates list
-                const candidatesRes = await fetch('http://localhost:5001/api/candidates');
+                const candidatesRes = await fetch(`${API_BASE_URL}/api/candidates`);
                 const candidatesData = await candidatesRes.json();
                 setCandidates(candidatesData.map(mapCandidateData));
                 setIsAddModalOpen(false);

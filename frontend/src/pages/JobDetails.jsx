@@ -12,6 +12,7 @@ import {
     Users, Calendar, GraduationCap, Edit, X
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { API_BASE_URL } from '@/lib/api';
 
 export default function JobDetails() {
     const { id } = useParams();
@@ -34,13 +35,13 @@ export default function JobDetails() {
 
     const fetchUserRole = async () => {
         try {
-            const response = await fetch(`http://localhost:5001/api/users/me?clerkId=${user.id}`);
+            const response = await fetch(`${API_BASE_URL}/api/users/me?clerkId=${user.id}`);
             if (response.ok) {
                 const data = await response.json();
                 setUserRole(data.role);
                 
                 if (data.role === 'candidate') {
-                    const candRes = await fetch(`http://localhost:5001/api/candidates/me?clerkId=${user.id}`);
+                    const candRes = await fetch(`${API_BASE_URL}/api/candidates/me?clerkId=${user.id}`);
                     if (candRes.ok) {
                         const candData = await candRes.json();
                         setCandidateProfile(candData);
@@ -60,7 +61,7 @@ export default function JobDetails() {
 
         setIsApplying(true);
         try {
-            const res = await fetch(`http://localhost:5001/api/jobs/${id}/apply`, {
+            const res = await fetch(`${API_BASE_URL}/api/jobs/${id}/apply`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ clerkId: user.id })
@@ -83,7 +84,7 @@ export default function JobDetails() {
 
     const fetchJobDetails = async () => {
         try {
-            const response = await fetch(`http://localhost:5001/api/jobs/${id}`);
+            const response = await fetch(`${API_BASE_URL}/api/jobs/${id}`);
             if (response.ok) {
                 const data = await response.json();
                 setJob(data);
@@ -154,7 +155,7 @@ export default function JobDetails() {
             : `${formData.workType} · ${formData.city.trim()}`;
 
         try {
-            const response = await fetch(`http://localhost:5001/api/jobs/${job._id}`, {
+            const response = await fetch(`${API_BASE_URL}/api/jobs/${job._id}`, {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({

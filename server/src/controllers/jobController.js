@@ -1,7 +1,7 @@
 import Job from '../models/Job.js';
 import Candidate from '../models/Candidate.js';
 import connectDB from '../db/connect.js';
-import { ai } from '../config/ai.js';
+import { ai, GEMINI_TEXT_MODEL } from '../config/ai.js';
 
 export const createJob = async (req, res) => {
     try {
@@ -37,13 +37,35 @@ const extractJSON = (text) => {
 export const generateJobDetails = async (req, res) => {
     try {
         const { prompt } = req.body;
-        const aiPrompt = `You are an expert HR professional. Generate a job posting for: "${prompt}". 
-        Return ONLY valid JSON with fields: title, location, type, department, description, requirements (array), responsibilities (array).
+        if (!prompt || !prompt.trim()) return res.status(400).json({ error: 'Prompt is required' });
+
+        const aiPrompt = `You are an expert HR professional. Generate a job posting for: "${prompt}".
+        Return ONLY valid JSON with these exact fields:
+        {
+          "title": "string",
+          "department": "string",
+          "workType": "Work from Home | On-site | Hybrid",
+          "city": "string",
+          "employmentType": "Full-time | Part-time | Contract | Internship",
+          "experienceLevel": "Entry | Mid | Senior | Lead",
+          "salaryMin": number,
+          "salaryMax": number,
+          "currency": "USD | INR",
+          "period": "year | month",
+          "description": "string",
+          "requirements": ["string"],
+          "responsibilities": ["string"],
+          "benefits": ["string"]
+        }
+        If the role is remote, use workType "Work from Home" and city "".
         Do not include any conversational text.`;
         
         const response = await ai.models.generateContent({
-            model: 'gemini-1.5-flash',
+            model: GEMINI_TEXT_MODEL,
             contents: [{ role: 'user', parts: [{ text: aiPrompt }] }],
+            config: {
+                responseMimeType: 'application/json',
+            },
         });
         const jobData = extractJSON(response.text);
         if (!jobData) throw new Error('Failed to extract valid JSON from AI');
@@ -163,8 +185,11 @@ export const matchCandidates = async (req, res) => {
         No other text.`;
 
         const response = await ai.models.generateContent({
-            model: 'gemini-1.5-flash',
+            model: GEMINI_TEXT_MODEL,
             contents: [{ role: 'user', parts: [{ text: prompt }] }],
+            config: {
+                responseMimeType: 'application/json',
+            },
         });
         
         const matches = extractJSON(response.text);

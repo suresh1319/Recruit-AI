@@ -2,13 +2,15 @@ import Candidate from '../models/Candidate.js';
 import Job from '../models/Job.js';
 import Interview from '../models/Interview.js';
 import connectDB from '../db/connect.js';
-import { ai } from '../config/ai.js';
+import { ai, GEMINI_TEXT_MODEL } from '../config/ai.js';
 import { sendEmail } from '../utils/sendEmail.js';
 import path from 'path';
 import fs from 'fs';
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const pdfParse = require('pdf-parse');
+const PUBLIC_API_URL = process.env.PUBLIC_API_URL || `http://localhost:${process.env.PORT || 5001}`;
+const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:5173';
 
 export const getCandidateMe = async (req, res) => {
     try {
@@ -144,6 +146,22 @@ const normalizeProjects = (projects) => {
     return [];
 };
 
+const extractJSON = (text) => {
+    if (!text) throw new Error('AI returned an empty response');
+    let clean = text.trim();
+    if (clean.startsWith('```json')) clean = clean.slice(7);
+    if (clean.startsWith('```')) clean = clean.slice(3);
+    if (clean.endsWith('```')) clean = clean.slice(0, -3);
+
+    const start = clean.search(/[\[{]/);
+    if (start === -1) throw new Error('AI response did not contain JSON');
+    const endChar = clean[start] === '[' ? ']' : '}';
+    const end = clean.lastIndexOf(endChar);
+    if (end === -1) throw new Error('AI response JSON was incomplete');
+
+    return JSON.parse(clean.slice(start, end + 1));
+};
+
 export const parseResume = async (req, res) => {
     try {
         if (!req.file) return res.status(400).json({ error: 'No resume file uploaded' });
@@ -152,28 +170,36 @@ export const parseResume = async (req, res) => {
         const rawText = data.text;
         if (!rawText || rawText.trim().length === 0) return res.status(400).json({ error: 'Could not extract text from the PDF' });
         
-        const prompt = `You are an expert technical recruiter AI. Extract information from this resume text. 
-        Return ONLY valid JSON with fields: name, email, phone, role, skills (array of strings), experienceSummary, projects (array of objects with 'name' and 'points' which is an array of strings).
+        const prompt = `You are an expert technical recruiter AI. Extract information from this resume text.
+        Return ONLY valid JSON with these fields:
+        {
+          "name": "string",
+          "email": "string",
+          "phone": "string",
+          "role": "string",
+          "skills": ["string"],
+          "experienceSummary": "string",
+          "projects": [{"name": "string", "points": ["string"]}]
+        }
+        Use empty strings or empty arrays when a field is not present.
         
         RAW TEXT:
         ${rawText}`;
 
         const response = await ai.models.generateContent({
-            model: "gemini-1.5-flash",
+            model: GEMINI_TEXT_MODEL,
             contents: [{ role: 'user', parts: [{ text: prompt }] }],
+            config: {
+                responseMimeType: 'application/json',
+            },
         });
 
-        let aiOutput = response.text.trim();
-        if (aiOutput.startsWith('```json')) aiOutput = aiOutput.slice(7);
-        if (aiOutput.startsWith('```')) aiOutput = aiOutput.slice(3);
-        if (aiOutput.endsWith('```')) aiOutput = aiOutput.slice(0, -3);
-
-        const structuredData = JSON.parse(aiOutput.trim());
+        const structuredData = extractJSON(response.text);
         const fileName = `${Date.now()}-${req.file.originalname}`;
         const uploadDir = path.join(process.cwd(), 'uploads');
         if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
         fs.writeFileSync(path.join(uploadDir, fileName), req.file.buffer);
-        structuredData.resumeUrl = `http://localhost:5001/uploads/${fileName}`;
+        structuredData.resumeUrl = `${PUBLIC_API_URL}/uploads/${fileName}`;
         
         // Normalize projects before sending to frontend
         structuredData.projects = normalizeProjects(structuredData.projects);
@@ -241,7 +267,7 @@ export const sendInvite = async (req, res) => {
         });
 
         candidate.status = 'invited';
-        candidate.interviewLink = `http://localhost:5173/interview/${interviewId}`;
+        candidate.interviewLink = `${CLIENT_URL}/interview/${interviewId}`;
         await candidate.save();
 
         if (candidate.email) {

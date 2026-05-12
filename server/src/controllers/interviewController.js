@@ -1,7 +1,7 @@
 import Interview from '../models/Interview.js';
 import Candidate from '../models/Candidate.js';
 import connectDB from '../db/connect.js';
-import { ai } from '../config/ai.js';
+import { ai, GEMINI_TEXT_MODEL } from '../config/ai.js';
 
 // Helper for analysis
 export const performInterviewAnalysis = async (interviewId) => {
@@ -52,7 +52,7 @@ export const performInterviewAnalysis = async (interviewId) => {
         `;
         
         const response = await ai.models.generateContent({
-            model: 'gemini-1.5-flash',
+            model: GEMINI_TEXT_MODEL,
             contents: [{ role: 'user', parts: [{ text: prompt }] }],
         });
 

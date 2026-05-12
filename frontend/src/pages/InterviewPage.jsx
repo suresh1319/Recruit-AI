@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { API_BASE_URL } from '@/lib/api';
 
 const InterviewPage = () => {
     const { interviewId } = useParams();
@@ -25,7 +26,7 @@ const InterviewPage = () => {
     const validateLink = async () => {
         try {
             setStatus('loading');
-            const response = await fetch(`http://localhost:5001/api/interviews/${interviewId}`);
+            const response = await fetch(`${API_BASE_URL}/api/interviews/${interviewId}`);
             const data = await response.json();
 
             if (!response.ok) {
@@ -48,7 +49,7 @@ const InterviewPage = () => {
 
         try {
             setIsStarting(true);
-            const response = await fetch(`http://localhost:5001/api/interviews/${interviewId}/start`, {
+            const response = await fetch(`${API_BASE_URL}/api/interviews/${interviewId}/start`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ fullName })

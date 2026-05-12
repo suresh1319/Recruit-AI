@@ -10,6 +10,12 @@ import {
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { io } from 'socket.io-client';
+import { API_BASE_URL, SOCKET_URL } from '@/lib/api';
+
+const RESPONSE_END_SILENCE_MS = 7000;
+const MIN_ANSWER_TIME_MS = 8000;
+const MIN_ANSWER_WORDS = 6;
+const SPEAKING_LEVEL_THRESHOLD = 0.018;
 
 const InterviewRoom = () => {
     const { interviewId } = useParams();
@@ -36,20 +42,27 @@ const InterviewRoom = () => {
     const audioContextRef = useRef(null);
     const chatEndRef = useRef(null);
     const silenceTimerRef = useRef(null);
+    const silenceCheckRef = useRef(null);
     const activeSourcesRef = useRef([]);
     const activeAnswerRef = useRef(""); // Accumulates the current turn's speech (final)
     const latestFullTextRef = useRef(""); // Accumulates final + interim
     const lastResultTimeRef = useRef(0); // Tracks last time speech was heard
+    const answerStartedAtRef = useRef(0);
+    const candidateAudioLevelRef = useRef(0);
+    const analyserRef = useRef(null);
+    const analyserFrameRef = useRef(null);
     const socketRef = useRef(null);
     const mediaRecorderRef = useRef(null);
     const recognitionRef = useRef(null);
 
     // Context refs for closures
     const isBotSpeakingRef = useRef(isBotSpeaking);
+    const isCandidateSpeakingRef = useRef(isCandidateSpeaking);
     const hasStartedRef = useRef(hasStarted);
     const statusRef = useRef(status);
 
     useEffect(() => { isBotSpeakingRef.current = isBotSpeaking; }, [isBotSpeaking]);
+    useEffect(() => { isCandidateSpeakingRef.current = isCandidateSpeaking; }, [isCandidateSpeaking]);
     useEffect(() => { hasStartedRef.current = hasStarted; }, [hasStarted]);
     useEffect(() => { statusRef.current = status; }, [status]);
 
@@ -91,6 +104,7 @@ const InterviewRoom = () => {
                 socketRef.current.emit('stop_interview');
                 socketRef.current.disconnect();
             }
+            stopCandidateAudioMonitor();
         };
     }, []); // Only run on mount
 
@@ -100,7 +114,7 @@ const InterviewRoom = () => {
 
         // Sync transcript to backend for persistence
         if (transcription.length > 0 && hasStarted) {
-            fetch(`http://localhost:5001/api/interviews/${interviewId}/transcript`, {
+            fetch(`${API_BASE_URL}/api/interviews/${interviewId}/transcript`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ transcript: transcription })
@@ -124,14 +138,14 @@ const InterviewRoom = () => {
                 const syncAndAnalyze = async () => {
                     try {
                         console.log('Syncing final transcript...');
-                        await fetch(`http://localhost:5001/api/interviews/${interviewId}/transcript`, {
+                        await fetch(`${API_BASE_URL}/api/interviews/${interviewId}/transcript`, {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({ transcript: transcription })
                         });
                         
                         console.log('Interview finished, triggering analysis...');
-                        await fetch(`http://localhost:5001/api/interviews/${interviewId}/analyze`, {
+                        await fetch(`${API_BASE_URL}/api/interviews/${interviewId}/analyze`, {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' }
                         });
@@ -164,7 +178,7 @@ const InterviewRoom = () => {
     const fetchQuestions = async () => {
         console.log(`Fetching questions for: ${interviewId}`);
         try {
-            const response = await fetch(`http://localhost:5001/api/interviews/${interviewId}/questions`);
+            const response = await fetch(`${API_BASE_URL}/api/interviews/${interviewId}/questions`);
             if (!response.ok) {
                 console.error(`Questions API error: ${response.status}`);
                 setError(`Failed to load interview: ${response.status === 404 ? 'Invalid Link' : 'Server Error'}`);
@@ -223,6 +237,7 @@ const InterviewRoom = () => {
             }
 
             streamRef.current = stream;
+            startCandidateAudioMonitor(stream);
             setStatus('active');
         } catch (err) {
             console.error('Error starting media devices:', err);
@@ -239,12 +254,61 @@ const InterviewRoom = () => {
         if (streamRef.current) {
             streamRef.current.getTracks().forEach(track => track.stop());
         }
+        stopCandidateAudioMonitor();
+    };
+
+    const startCandidateAudioMonitor = (stream) => {
+        if (!stream?.getAudioTracks?.().length || analyserRef.current) return;
+
+        try {
+            const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+            if (!AudioContextClass) return;
+
+            const context = audioContextRef.current || new AudioContextClass();
+            audioContextRef.current = context;
+            const source = context.createMediaStreamSource(stream);
+            const analyser = context.createAnalyser();
+            analyser.fftSize = 512;
+            source.connect(analyser);
+            analyserRef.current = analyser;
+            activeSourcesRef.current.push(source);
+
+            const samples = new Uint8Array(analyser.fftSize);
+            const readLevel = () => {
+                analyser.getByteTimeDomainData(samples);
+                let sum = 0;
+                for (const value of samples) {
+                    const centered = (value - 128) / 128;
+                    sum += centered * centered;
+                }
+                candidateAudioLevelRef.current = Math.sqrt(sum / samples.length);
+                analyserFrameRef.current = requestAnimationFrame(readLevel);
+            };
+            readLevel();
+        } catch (err) {
+            console.error('Could not start candidate audio monitor:', err);
+        }
+    };
+
+    const stopCandidateAudioMonitor = () => {
+        if (analyserFrameRef.current) {
+            cancelAnimationFrame(analyserFrameRef.current);
+            analyserFrameRef.current = null;
+        }
+        activeSourcesRef.current.forEach(source => {
+            try {
+                source.disconnect();
+            } catch (e) { }
+        });
+        activeSourcesRef.current = [];
+        analyserRef.current = null;
+        candidateAudioLevelRef.current = 0;
     };
 
     const initTranscription = async () => {
         console.log('Initializing Deepgram STT...');
         // Initialize Socket.io
-        const socket = io('http://localhost:5001', {
+        const socket = io(SOCKET_URL, {
             transports: ['websocket', 'polling'],
             reconnectionAttempts: 5,
             timeout: 10000
@@ -261,104 +325,44 @@ const InterviewRoom = () => {
             setError(`Connection Error: ${err.message}. Ensure backend is running.`);
         });
 
-        // --- Native Web Speech API Setup ---
-        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-        if (!SpeechRecognition) {
-            console.error("Browser does not support Speech Recognition");
-            setError("Your browser does not support Speech Recognition. Please use Google Chrome or Edge.");
-            return;
-        }
+        socket.on('transcription_ready', ({ provider, model }) => {
+            console.log(`Live transcription ready: ${provider} ${model}`);
+        });
 
-        const recognition = new SpeechRecognition();
-        recognition.continuous = true;
-        recognition.interimResults = true;
-        recognition.lang = 'en-US';
+        socket.on('transcription_error', ({ message }) => {
+            console.error('Live transcription error:', message);
+            setError(message || 'Live transcription is unavailable.');
+        });
 
-        recognition.onresult = (event) => {
-            let interimTranscript = '';
-            let finalTranscript = '';
+        socket.on('candidate_speech_started', () => {
+            lastResultTimeRef.current = Date.now();
+            if (!answerStartedAtRef.current) answerStartedAtRef.current = Date.now();
+            isCandidateSpeakingRef.current = true;
+            setIsCandidateSpeaking(true);
+        });
 
-            for (let i = event.resultIndex; i < event.results.length; ++i) {
-                if (event.results[i].isFinal) {
-                    finalTranscript += event.results[i][0].transcript;
-                } else {
-                    interimTranscript += event.results[i][0].transcript;
-                }
-            }
-
-            if (!finalTranscript && !interimTranscript) return;
+        socket.on('candidate_transcript', ({ text, isFinal }) => {
+            const cleanText = text?.trim();
+            if (!cleanText) return;
 
             lastResultTimeRef.current = Date.now();
+            if (!answerStartedAtRef.current) answerStartedAtRef.current = Date.now();
+            isCandidateSpeakingRef.current = true;
             setIsCandidateSpeaking(true);
 
-            // Append any new confirmed text to our running buffer
-            if (finalTranscript) {
-                activeAnswerRef.current += (activeAnswerRef.current ? ' ' : '') + finalTranscript.trim();
+            if (isFinal) {
+                activeAnswerRef.current += (activeAnswerRef.current ? ' ' : '') + cleanText;
             }
 
-            // The live display is the confirmed text plus whatever is currently being deciphered
-            const currentFullText = (activeAnswerRef.current + (interimTranscript ? ' ' + interimTranscript.trim() : '')).trim();
+            const currentFullText = (activeAnswerRef.current + (!isFinal ? ` ${cleanText}` : '')).trim();
             latestFullTextRef.current = currentFullText;
+            upsertCandidateTranscript(currentFullText);
+            scheduleTurnCompletionCheck();
+        });
 
-            if (currentFullText) {
-                setTranscription(prev => {
-                    const lastMsg = prev[prev.length - 1];
-                    const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
-                    if (lastMsg && lastMsg.speaker === 'Candidate' && lastMsg.isLive) {
-                        const newArr = [...prev];
-                        newArr[newArr.length - 1] = {
-                            ...lastMsg,
-                            text: currentFullText,
-                            time: timestamp
-                        };
-                        return newArr;
-                    }
-
-                    return [...prev, {
-                        speaker: 'Candidate',
-                        name: candidateName,
-                        text: currentFullText,
-                        time: timestamp,
-                        isLive: true
-                    }];
-                });
-
-                if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-                silenceTimerRef.current = setTimeout(() => {
-                    setIsCandidateSpeaking(false);
-                    finalizeTurn();
-                }, 8000); // 8 seconds gives the candidate plenty of time to pause and think without being cut off
-            }
-        };
-
-        recognition.onerror = (event) => {
-            console.error('Speech recognition error:', event.error);
-        };
-
-        recognition.onend = () => {
-            // Preserve interim text if it dropped due to silent browser kill
-            if (latestFullTextRef.current) {
-                activeAnswerRef.current = latestFullTextRef.current;
-            }
-
-            // Restart automatically if the interview is still active and the bot isn't speaking
-            try {
-                if (hasStartedRef.current && statusRef.current === 'active' && !isBotSpeakingRef.current) {
-                    recognition.start();
-                }
-            } catch (e) {
-                // Ignore start errors like 'already started'
-            }
-        };
-
-        try {
-            recognition.start();
-            recognitionRef.current = recognition;
-            console.log("Web Speech API started successfully");
-        } catch (e) {
-            console.error("Failed to start Web Speech API", e);
-        }
+        socket.on('candidate_utterance_end', () => {
+            scheduleTurnCompletionCheck();
+        });
 
         // Initialize MediaRecorder - Use existing stream if available
         try {
@@ -396,6 +400,33 @@ const InterviewRoom = () => {
         }
     };
 
+    const upsertCandidateTranscript = (text) => {
+        if (!text) return;
+
+        setTranscription(prev => {
+            const lastMsg = prev[prev.length - 1];
+            const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+            if (lastMsg && lastMsg.speaker === 'Candidate' && lastMsg.isLive) {
+                const newArr = [...prev];
+                newArr[newArr.length - 1] = {
+                    ...lastMsg,
+                    text,
+                    time: timestamp
+                };
+                return newArr;
+            }
+
+            return [...prev, {
+                speaker: 'Candidate',
+                name: candidateName,
+                text,
+                time: timestamp,
+                isLive: true
+            }];
+        });
+    };
+
     const finalizeTurn = () => {
         const finalAnswer = latestFullTextRef.current.trim();
         if (!finalAnswer) return;
@@ -415,7 +446,37 @@ const InterviewRoom = () => {
 
         activeAnswerRef.current = "";
         latestFullTextRef.current = "";
+        answerStartedAtRef.current = 0;
+        isCandidateSpeakingRef.current = false;
+        setIsCandidateSpeaking(false);
         handleNext();
+    };
+
+    const scheduleTurnCompletionCheck = () => {
+        if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+        if (silenceCheckRef.current) clearTimeout(silenceCheckRef.current);
+
+        silenceCheckRef.current = setTimeout(() => {
+            const answerText = latestFullTextRef.current.trim();
+            const wordCount = answerText ? answerText.split(/\s+/).length : 0;
+            const silenceMs = Date.now() - lastResultTimeRef.current;
+            const answerAgeMs = answerStartedAtRef.current ? Date.now() - answerStartedAtRef.current : 0;
+            const micIsQuiet = candidateAudioLevelRef.current < SPEAKING_LEVEL_THRESHOLD;
+            const hasEnoughAnswer = wordCount >= MIN_ANSWER_WORDS || answerAgeMs >= MIN_ANSWER_TIME_MS;
+
+            if (
+                answerText &&
+                hasEnoughAnswer &&
+                silenceMs >= RESPONSE_END_SILENCE_MS &&
+                micIsQuiet &&
+                !isBotSpeakingRef.current
+            ) {
+                finalizeTurn();
+                return;
+            }
+
+            scheduleTurnCompletionCheck();
+        }, 1000);
     };
 
     const stopAllSpeech = () => {
@@ -432,6 +493,7 @@ const InterviewRoom = () => {
 
             // Clear silence timer when bot starts speaking
             if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+            if (silenceCheckRef.current) clearTimeout(silenceCheckRef.current);
 
             // Pause Native Speech Recognition so it doesn't transcribe the bot
             if (recognitionRef.current) {
@@ -504,7 +566,12 @@ const InterviewRoom = () => {
     };
 
     const handleNext = () => {
-        if (!isBotSpeakingRef.current && hasStartedRef.current && statusRef.current === 'active') {
+        if (
+            !isBotSpeakingRef.current &&
+            !isCandidateSpeakingRef.current &&
+            hasStartedRef.current &&
+            statusRef.current === 'active'
+        ) {
             // No need to manually start anything here, MediaRecorder is persistent
             setCurrentQuestionIndex(prev => prev + 1);
         }
@@ -512,7 +579,7 @@ const InterviewRoom = () => {
 
     const handleManualNext = () => {
         if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-        setIsCandidateSpeaking(false);
+        if (silenceCheckRef.current) clearTimeout(silenceCheckRef.current);
         finalizeTurn();
     };
 
@@ -534,14 +601,14 @@ const InterviewRoom = () => {
                 const syncAndAnalyze = async () => {
                     try {
                         console.log('Syncing final transcript (manual end)...');
-                        await fetch(`http://localhost:5001/api/interviews/${interviewId}/transcript`, {
+                        await fetch(`${API_BASE_URL}/api/interviews/${interviewId}/transcript`, {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({ transcript: transcription })
                         });
                         
                         console.log('Interview ended manually, triggering analysis...');
-                        await fetch(`http://localhost:5001/api/interviews/${interviewId}/analyze`, {
+                        await fetch(`${API_BASE_URL}/api/interviews/${interviewId}/analyze`, {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' }
                         });
@@ -797,7 +864,7 @@ const InterviewRoom = () => {
                                 {hasStarted && status === 'active' && (
                                     <Button
                                         onClick={handleManualNext}
-                                        disabled={isBotSpeaking}
+                                        disabled={isBotSpeaking || isCandidateSpeaking}
                                         className="h-14 px-6 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg shadow-indigo-600/20 font-bold transition-all disabled:opacity-50 flex items-center gap-2"
                                     >
                                         Next Question

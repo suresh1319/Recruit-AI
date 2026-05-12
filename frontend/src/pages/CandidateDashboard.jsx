@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTheme } from '../components/theme-provider';
+import { API_BASE_URL } from '@/lib/api';
 
 export default function CandidateDashboard() {
     const { user, isLoaded } = useUser();
@@ -61,7 +62,7 @@ export default function CandidateDashboard() {
     const fetchApplications = async () => {
         setIsLoadingApps(true);
         try {
-            const res = await fetch(`http://localhost:5001/api/candidates/my-applications?clerkId=${user.id}`);
+            const res = await fetch(`${API_BASE_URL}/api/candidates/my-applications?clerkId=${user.id}`);
             if (res.ok) {
                 const data = await res.json();
                 setApplications(data.applications || []);
@@ -76,11 +77,11 @@ export default function CandidateDashboard() {
     const fetchData = async () => {
         setIsLoading(true);
         try {
-            const jobsRes = await fetch('http://localhost:5001/api/public-jobs');
+            const jobsRes = await fetch(`${API_BASE_URL}/api/public-jobs`);
             const jobsData = await jobsRes.json();
             setActiveJobs(Array.isArray(jobsData) ? jobsData : []);
 
-            const profileRes = await fetch(`http://localhost:5001/api/candidates/me?clerkId=${user.id}`);
+            const profileRes = await fetch(`${API_BASE_URL}/api/candidates/me?clerkId=${user.id}`);
             if (profileRes.ok) {
                 const profileData = await profileRes.json();
                 setProfile(profileData);
@@ -112,7 +113,7 @@ export default function CandidateDashboard() {
 
         setIsSaving(true);
         try {
-            const res = await fetch(`http://localhost:5001/api/candidates/me?clerkId=${user.id || profile.clerkId}`, {
+            const res = await fetch(`${API_BASE_URL}/api/candidates/me?clerkId=${user.id || profile.clerkId}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ ...profile, clerkId: user.id || profile.clerkId })
@@ -142,7 +143,7 @@ export default function CandidateDashboard() {
 
         setApplyingTo(jobId);
         try {
-            const res = await fetch(`http://localhost:5001/api/jobs/${jobId}/apply`, {
+            const res = await fetch(`${API_BASE_URL}/api/jobs/${jobId}/apply`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ clerkId: user.id })
@@ -173,7 +174,7 @@ export default function CandidateDashboard() {
         uploadData.append('resume', file);
 
         try {
-            const response = await fetch('http://localhost:5001/api/candidates/parse-resume', {
+            const response = await fetch(`${API_BASE_URL}/api/candidates/parse-resume`, {
                 method: 'POST',
                 body: uploadData,
             });

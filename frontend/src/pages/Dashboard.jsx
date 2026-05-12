@@ -14,6 +14,7 @@ import CandidatesTab from './components/CandidatesTab';
 import SchedulesTab from './components/SchedulesTab';
 import SettingsTab from './components/SettingsTab';
 import WorkflowVisualization from './components/WorkflowVisualization';
+import { API_BASE_URL } from '@/lib/api';
 
 export default function Dashboard() {
     const { user } = useUser();
@@ -38,7 +39,7 @@ export default function Dashboard() {
     }, [searchParams]);
 
     useEffect(() => {
-        fetch('http://localhost:5001/api/dashboard/metrics')
+        fetch(`${API_BASE_URL}/api/dashboard/metrics`)
             .then(res => res.json())
             .then(data => {
                 setMetrics(data);

@@ -3,6 +3,7 @@ import express from 'express';
 import cors from 'cors';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
+import { DeepgramClient } from '@deepgram/sdk';
 import fs from 'fs';
 import path from 'path';
 import connectDB from './src/db/connect.js';
@@ -18,16 +19,20 @@ import ttsRoutes from './src/routes/ttsRoutes.js';
 
 const app = express();
 const httpServer = createServer(app);
+const allowedOrigins = (process.env.CLIENT_URL || 'http://localhost:5173')
+    .split(',')
+    .map(origin => origin.trim())
+    .filter(Boolean);
 const io = new Server(httpServer, {
     cors: {
-        origin: "*",
+        origin: allowedOrigins,
         methods: ["GET", "POST"]
     }
 });
 const PORT = process.env.PORT || 5001;
 
 // Middleware
-app.use(cors());
+app.use(cors({ origin: allowedOrigins }));
 app.use(express.json());
 app.use('/uploads', express.static('uploads'));
 
@@ -53,6 +58,102 @@ io.on('connection', (socket) => {
     console.log('New client connected:', socket.id);
     let audioStream;
     let currentInterviewId;
+    let deepgramSocket;
+    let keepAliveTimer;
+
+    const closeDeepgram = () => {
+        if (keepAliveTimer) {
+            clearInterval(keepAliveTimer);
+            keepAliveTimer = null;
+        }
+        if (deepgramSocket) {
+            try {
+                deepgramSocket.sendFinalize({ type: 'Finalize' });
+                deepgramSocket.sendCloseStream({ type: 'CloseStream' });
+                deepgramSocket.close();
+            } catch (err) {
+                console.error('Deepgram close error:', err.message);
+            }
+            deepgramSocket = null;
+        }
+    };
+
+    const startDeepgram = async () => {
+        const apiKey = process.env.DEEPGRAM_API_KEY;
+        if (!apiKey) {
+            socket.emit('transcription_error', { message: 'Deepgram API key is not configured.' });
+            return;
+        }
+
+        try {
+            const deepgram = new DeepgramClient({ apiKey });
+            deepgramSocket = await deepgram.listen.v1.connect({
+                Authorization: `Token ${apiKey}`,
+                model: 'nova-3',
+                language: 'en-US',
+                punctuate: true,
+                smart_format: true,
+                interim_results: true,
+                vad_events: true,
+                utterance_end_ms: 1200,
+                encoding: 'opus',
+                sample_rate: 48000,
+                channels: 1,
+            });
+
+            deepgramSocket.on('open', () => {
+                console.log(`Deepgram connected for interview: ${currentInterviewId}`);
+                socket.emit('transcription_ready', { provider: 'deepgram', model: 'nova-3' });
+                keepAliveTimer = setInterval(() => {
+                    try {
+                        deepgramSocket?.sendKeepAlive({ type: 'KeepAlive' });
+                    } catch (err) {
+                        console.error('Deepgram keepalive error:', err.message);
+                    }
+                }, 10000);
+            });
+
+            deepgramSocket.on('message', (message) => {
+                if (message.type === 'Results') {
+                    const text = message.channel?.alternatives?.[0]?.transcript?.trim();
+                    if (!text) return;
+                    socket.emit('candidate_transcript', {
+                        text,
+                        isFinal: Boolean(message.is_final),
+                        speechFinal: Boolean(message.speech_final),
+                    });
+                }
+
+                if (message.type === 'SpeechStarted') {
+                    socket.emit('candidate_speech_started');
+                }
+
+                if (message.type === 'UtteranceEnd') {
+                    socket.emit('candidate_utterance_end');
+                }
+            });
+
+            deepgramSocket.on('error', (error) => {
+                console.error('Deepgram error:', error);
+                socket.emit('transcription_error', { message: 'Live transcription connection failed.' });
+            });
+
+            deepgramSocket.on('close', () => {
+                console.log(`Deepgram closed for interview: ${currentInterviewId}`);
+                if (keepAliveTimer) {
+                    clearInterval(keepAliveTimer);
+                    keepAliveTimer = null;
+                }
+            });
+
+            deepgramSocket.connect();
+            await deepgramSocket.waitForOpen();
+        } catch (err) {
+            console.error('Deepgram start error:', err);
+            socket.emit('transcription_error', { message: 'Could not start live transcription.' });
+            closeDeepgram();
+        }
+    };
 
     socket.on('start_interview', async ({ interviewId }) => {
         currentInterviewId = interviewId;
@@ -62,13 +163,22 @@ io.on('connection', (socket) => {
         const filePath = path.join(recordingsDir, `${interviewId}.webm`);
         audioStream = fs.createWriteStream(filePath, { flags: 'a' });
         socket.emit('backend_ready', { message: 'Recording stream opened.' });
+        await startDeepgram();
     });
 
     socket.on('audio_data', (data) => {
         if (audioStream) audioStream.write(data);
+        if (deepgramSocket) {
+            try {
+                deepgramSocket.sendMedia(data);
+            } catch (err) {
+                console.error('Deepgram media send error:', err.message);
+            }
+        }
     });
 
     socket.on('stop_interview', async () => {
+        closeDeepgram();
         if (audioStream) {
             audioStream.end();
             audioStream = null;
@@ -94,6 +204,7 @@ io.on('connection', (socket) => {
     });
 
     socket.on('disconnect', () => {
+        closeDeepgram();
         if (audioStream) audioStream.end();
     });
 });

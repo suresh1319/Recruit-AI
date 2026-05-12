@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useUser } from "@clerk/clerk-react";
 import { useNavigate, useLocation } from "react-router-dom";
+import { API_BASE_URL } from '@/lib/api';
 
 export default function SyncUser() {
     const { isLoaded, isSignedIn, user } = useUser();
@@ -15,7 +16,7 @@ export default function SyncUser() {
                 try {
                     const preferredRole = localStorage.getItem('preferred_role');
 
-                    const response = await fetch("http://localhost:5001/api/users/sync", {
+                    const response = await fetch(`${API_BASE_URL}/api/users/sync`, {
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({
