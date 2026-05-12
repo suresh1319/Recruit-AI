@@ -11,7 +11,7 @@ const require = createRequire(import.meta.url);
 const pdfParse = require('pdf-parse');
 const PUBLIC_API_URL = process.env.PUBLIC_API_URL || `http://localhost:${process.env.PORT || 5001}`;
 const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:5173';
-
+const PRIMARY_CLIENT_URL = CLIENT_URL.split(',')[0].trim();
 export const getCandidateMe = async (req, res) => {
     try {
         const { clerkId } = req.query;
@@ -266,7 +266,7 @@ export const sendInvite = async (req, res) => {
         const expiresAt = new Date();
         expiresAt.setDate(expiresAt.getDate() + deadlineDays);
         
-        const interviewLink = `${CLIENT_URL}/interview/${interviewId}`;
+        const interviewLink = `${PRIMARY_CLIENT_URL}/interview/${interviewId}`;
 
         // Attempt to send the email first, before saving to database
         const subject = `Interview Invitation for ${job?.title || candidate.role}`;

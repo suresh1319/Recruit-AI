@@ -121,6 +121,9 @@ export default function CandidatesTab() {
                 );
                 setCandidates(updatedCandidates);
                 setInvitingId(null);
+            } else {
+                const errData = await response.json();
+                toast.error(errData.error || 'Failed to send invite.');
             }
         } catch (error) {
             console.error('Send invite error:', error);
