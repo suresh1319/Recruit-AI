@@ -23,6 +23,7 @@ export default function Dashboard() {
     const [searchParams, setSearchParams] = useSearchParams();
     const [activeTab, setActiveTab] = useState('home');
     const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+    const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
     const [isProfileOpen, setIsProfileOpen] = useState(false);
     const [metrics, setMetrics] = useState({
         activeJobs: 0,
@@ -73,11 +74,19 @@ export default function Dashboard() {
 
     return (
         <div className="flex h-screen bg-[#f4f7fb] dark:bg-slate-950 text-slate-900 dark:text-slate-100 font-sans overflow-hidden transition-colors duration-300">
+            {/* Mobile Overlay */}
+            {isMobileSidebarOpen && (
+                <div 
+                    className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-40 md:hidden"
+                    onClick={() => setIsMobileSidebarOpen(false)}
+                />
+            )}
+
             {/* Sidebar */}
             <motion.aside
                 initial={false}
-                animate={{ width: isSidebarCollapsed ? 80 : 256 }}
-                className="bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col justify-between hidden md:flex shrink-0 relative transition-all duration-300 ease-in-out"
+                animate={{ width: isSidebarCollapsed && !isMobileSidebarOpen ? 80 : 256 }}
+                className={`bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col justify-between shrink-0 transition-all duration-300 ease-in-out fixed md:relative z-50 h-full shadow-2xl md:shadow-none ${isMobileSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}
             >
                 {/* Toggle Button */}
                 <button
@@ -123,6 +132,7 @@ export default function Dashboard() {
                                         e.preventDefault();
                                         setSearchParams({ tab: item.id });
                                         setActiveTab(item.id);
+                                        setIsMobileSidebarOpen(false);
                                     }}
                                     className={`flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium transition-all group ${activeTab === item.id
                                         ? 'bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100'
@@ -205,7 +215,6 @@ export default function Dashboard() {
 
             {/* Main Content */}
             <main className="flex-1 overflow-y-auto w-full">
-                {/* Mobile Header (hidden on md) */}
                 <div className="md:hidden flex items-center justify-between p-4 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 sticky top-0 z-10">
                     <div className="flex items-center gap-2">
                         <div className="p-1.5 bg-indigo-600 rounded-md">
@@ -213,7 +222,7 @@ export default function Dashboard() {
                         </div>
                         <h1 className="font-bold text-slate-900 dark:text-slate-100">RecruitAI</h1>
                     </div>
-                    <Button variant="ghost" size="icon" className="dark:text-slate-400">
+                    <Button variant="ghost" size="icon" className="dark:text-slate-400" onClick={() => setIsMobileSidebarOpen(true)}>
                         <LayoutDashboard className="h-5 w-5" />
                     </Button>
                 </div>

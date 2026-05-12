@@ -4,7 +4,7 @@ import { motion } from 'framer-motion';
 import {
     Briefcase, Bot, Users, Sparkles, ArrowRight, 
     ShieldCheck, Zap, Globe, BarChart3, Clock,
-    PhoneCall, CalendarCheck
+    PhoneCall, CalendarCheck, Menu, X
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -44,8 +44,11 @@ const SERVICES = [
 ];
 
 const LandingPage = () => {
+    const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
+
     const handleRoleSelection = (role) => {
         localStorage.setItem('preferred_role', role);
+        setIsMobileMenuOpen(false);
     };
 
     return (
@@ -71,13 +74,15 @@ const LandingPage = () => {
                     <a href="#platform" className="hover:text-white transition-colors">Platform</a>
                     <a href="#about" className="hover:text-white transition-colors">About</a>
                 </div>
-                <div className="flex items-center gap-2">
+                
+                {/* Desktop Auth */}
+                <div className="hidden md:flex items-center gap-2">
                     <Link to="/sign-in" onClick={() => handleRoleSelection('candidate')}>
-                        <Button variant="ghost" className="text-slate-300 hover:text-white hover:bg-white/5 font-medium text-sm hidden md:flex">
+                        <Button variant="ghost" className="text-slate-300 hover:text-white hover:bg-white/5 font-medium text-sm">
                             Candidate Login
                         </Button>
                     </Link>
-                    <div className="w-px h-4 bg-white/20 hidden md:block mx-2"></div>
+                    <div className="w-px h-4 bg-white/20 mx-2"></div>
                     <Link to="/sign-in" onClick={() => handleRoleSelection('recruiter')}>
                         <Button variant="ghost" className="text-slate-300 hover:text-white hover:bg-white/5 font-medium text-sm">
                             Recruiter Login
@@ -89,6 +94,35 @@ const LandingPage = () => {
                         </Button>
                     </Link>
                 </div>
+
+                {/* Mobile Toggle Button */}
+                <div className="flex md:hidden items-center">
+                    <button onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} className="text-slate-300 hover:text-white p-2">
+                        {isMobileMenuOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
+                    </button>
+                </div>
+
+                {/* Mobile Menu Dropdown */}
+                {isMobileMenuOpen && (
+                    <div className="md:hidden absolute top-full left-0 w-full bg-black/95 backdrop-blur-xl border-b border-white/10 p-6 flex flex-col gap-6 shadow-2xl">
+                        <div className="flex flex-col gap-4 text-sm font-medium text-slate-300">
+                            <a href="#services" onClick={() => setIsMobileMenuOpen(false)} className="hover:text-white">Services</a>
+                            <a href="#platform" onClick={() => setIsMobileMenuOpen(false)} className="hover:text-white">Platform</a>
+                            <a href="#about" onClick={() => setIsMobileMenuOpen(false)} className="hover:text-white">About</a>
+                        </div>
+                        <div className="flex flex-col gap-3 border-t border-white/10 pt-6">
+                            <Link to="/sign-in" onClick={() => handleRoleSelection('candidate')}>
+                                <Button variant="ghost" className="w-full text-left justify-start text-white border border-white/20 bg-white/5 hover:bg-white/10">Candidate Login</Button>
+                            </Link>
+                            <Link to="/sign-in" onClick={() => handleRoleSelection('recruiter')}>
+                                <Button variant="ghost" className="w-full text-left justify-start text-white border border-white/20 bg-white/5 hover:bg-white/10">Recruiter Login</Button>
+                            </Link>
+                            <Link to="/sign-up" onClick={() => handleRoleSelection('recruiter')}>
+                                <Button className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold">Get Started</Button>
+                            </Link>
+                        </div>
+                    </div>
+                )}
             </nav>
 
             {/* Hero Section */}
