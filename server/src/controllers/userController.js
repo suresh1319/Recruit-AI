@@ -23,25 +23,40 @@ export const syncUser = async (req, res) => {
 
         await connectDB();
 
-        // Build update object
-        const updateFields = {
-            clerkId: actualId,
-            email: primaryEmail,
-            firstName: actualFirstName,
-            lastName: actualLastName,
-            imageUrl: actualImageUrl
-        };
+        // Build update object and check existing user by clerkId or email
+        let user = await User.findOne({ clerkId: actualId });
 
-        if (roleUpdate.role) {
-            updateFields.role = roleUpdate.role;
+        if (!user && primaryEmail) {
+            user = await User.findOne({ email: primaryEmail });
+            if (user) {
+                // If a user exists with this email but a different clerkId, update it
+                user.clerkId = actualId;
+            }
         }
 
-        // Primary sync logic
-        const user = await User.findOneAndUpdate(
-            { clerkId: actualId },
-            { $set: updateFields },
-            { upsert: true, returnDocument: 'after' }
-        );
+        if (user) {
+            // Update fields but preserve existing role to prevent coincide/switch
+            user.email = primaryEmail || user.email;
+            user.firstName = actualFirstName || user.firstName;
+            user.lastName = actualLastName || user.lastName;
+            user.imageUrl = actualImageUrl || user.imageUrl;
+
+            if (!user.role && roleUpdate.role) {
+                user.role = roleUpdate.role;
+            }
+            await user.save();
+        } else {
+            // Create new user
+            const createFields = {
+                clerkId: actualId,
+                email: primaryEmail,
+                firstName: actualFirstName,
+                lastName: actualLastName,
+                imageUrl: actualImageUrl,
+                role: roleUpdate.role || 'candidate'
+            };
+            user = await User.create(createFields);
+        }
 
         // Fail-safe: if role is still missing, default to candidate
         if (!user.role) {

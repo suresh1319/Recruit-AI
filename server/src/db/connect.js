@@ -26,7 +26,10 @@ async function connectDB() {
 
     if (!cached.promise) {
         const opts = {
-            bufferCommands: false,
+            // bufferCommands: false was removed — with it set, requests that race
+            // the initial connection throw immediately. The default (true) safely
+            // queues operations until the connection is ready.
+            serverSelectionTimeoutMS: 5000, // Fail fast if Atlas is unreachable
         };
 
         cached.promise = mongoose.connect(MONGODB_URI, opts).then((mongoose) => {

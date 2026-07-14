@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useUser, SignOutButton } from '@clerk/clerk-react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
@@ -20,9 +20,32 @@ import { toast } from 'sonner';
 import { useTheme } from '../components/theme-provider';
 import { API_BASE_URL } from '@/lib/api';
 
+/**
+ * Fixes interview links that were stored when CLIENT_URL contained multiple
+ * comma-separated origins (e.g. "https://a.com,https://b.com,http://localhost:5173").
+ * It extracts the /interview/<id> path and rebuilds the URL using the
+ * current window origin so the link always works in the deployed environment.
+ */
+function sanitizeInterviewLink(rawLink) {
+    if (!rawLink) return null;
+    // Extract the /interview/<id> segment from wherever it appears in the string
+    const match = rawLink.match(/(\/interview\/[\w-]+)/); 
+    if (match) {
+        return `${window.location.origin}${match[1]}`;
+    }
+    // If it already looks like a valid URL, return as-is
+    try {
+        const url = new URL(rawLink);
+        return url.href;
+    } catch {
+        return rawLink;
+    }
+}
+
 export default function CandidateDashboard() {
     const { user, isLoaded } = useUser();
     const navigate = useNavigate();
+    const location = useLocation();
     const { theme, setTheme } = useTheme();
     const [activeJobs, setActiveJobs] = useState([]);
     const [profile, setProfile] = useState({});
@@ -34,7 +57,40 @@ export default function CandidateDashboard() {
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
     const [applications, setApplications] = useState([]);
     const [isLoadingApps, setIsLoadingApps] = useState(false);
+    const [isRoleChecking, setIsRoleChecking] = useState(true);
     const fileInputRef = useRef(null);
+
+    useEffect(() => {
+        if (!isLoaded) return;
+        if (!user) {
+            navigate('/sign-in', { replace: true });
+            return;
+        }
+
+        fetch(`${API_BASE_URL}/api/users/me?clerkId=${user.id}`)
+            .then(res => {
+                if (!res.ok) throw new Error('Failed to fetch user profile');
+                return res.json();
+            })
+            .then(userData => {
+                if (userData.role !== 'candidate') {
+                    navigate('/dashboard', { replace: true });
+                } else {
+                    setIsRoleChecking(false);
+                }
+            })
+            .catch(err => {
+                console.error('Error verifying user role:', err);
+                setIsRoleChecking(false);
+            });
+    }, [user, isLoaded, navigate]);
+
+    useEffect(() => {
+        if (location.state?.activeTab) {
+            setActiveTab(location.state.activeTab);
+            window.history.replaceState({}, document.title);
+        }
+    }, [location.state]);
 
     // Filters State
     const [filters, setFilters] = useState({
@@ -93,6 +149,13 @@ export default function CandidateDashboard() {
                     email: user.primaryEmailAddress?.emailAddress || '',
                     status: 'pending'
                 });
+            }
+
+            // Fetch applications so we have them loaded on browse jobs tab for filtering
+            const appsRes = await fetch(`${API_BASE_URL}/api/candidates/my-applications?clerkId=${user.id}`);
+            if (appsRes.ok) {
+                const appsData = await appsRes.json();
+                setApplications(appsData.applications || []);
             }
         } catch (error) {
             console.error('Error fetching data:', error);
@@ -208,7 +271,14 @@ export default function CandidateDashboard() {
 
     // Filter Logic
     const filteredJobs = useMemo(() => {
+        const appliedJobIds = new Set(applications.map(app => app.jobId?.toString()).filter(Boolean));
+
         return activeJobs.filter(job => {
+            // Exclude already applied jobs
+            if (appliedJobIds.has(job._id?.toString())) {
+                return false;
+            }
+
             // General Keyword Search (Bottom bar)
             const matchesKeyword = !filters.search ||
                 job.title.toLowerCase().includes(filters.search.toLowerCase()) ||
@@ -244,7 +314,7 @@ export default function CandidateDashboard() {
 
             return matchesKeyword && matchesProfile && matchesLocation && matchesWFH && matchesInternships && matchesPartTime && matchesStipend;
         });
-    }, [activeJobs, filters, profile]);
+    }, [activeJobs, filters, profile, applications]);
 
     const resetFilters = () => {
         setFilters({
@@ -259,11 +329,13 @@ export default function CandidateDashboard() {
         });
     };
 
-    if (!isLoaded || isLoading) {
+    if (!isLoaded || isLoading || isRoleChecking) {
         return (
             <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-8">
                 <Loader2 className="h-10 w-10 animate-spin text-indigo-600 mb-4" />
-                <p className="text-slate-600 font-medium animate-pulse">Loading your dashboard...</p>
+                <p className="text-slate-600 font-medium animate-pulse">
+                    {!isLoaded || isRoleChecking ? "Checking permissions..." : "Loading your dashboard..."}
+                </p>
             </div>
         );
     }
@@ -650,12 +722,37 @@ export default function CandidateDashboard() {
                                                     >
                                                         <ExternalLink size={11} /> See Job Details
                                                     </button>
-                                                    {app.applicationStatus === 'invited' && app.interviewLink && (
-                                                        <a href={app.interviewLink} target="_blank" rel="noopener noreferrer"
-                                                            className="px-4 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold flex items-center gap-1.5 transition-colors">
-                                                            <Calendar size={12} /> Join Interview
-                                                        </a>
-                                                    )}
+                                                    {(() => {
+                                                        if (!app.interviewLink) return null;
+                                                        if (app.applicationStatus === 'rejected') {
+                                                            return (
+                                                                <button disabled className="px-4 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500 text-xs font-bold flex items-center gap-1.5 cursor-not-allowed border border-slate-200 dark:border-slate-800 opacity-60">
+                                                                    <Calendar size={12} className="opacity-60" /> Join Interview
+                                                                </button>
+                                                            );
+                                                        }
+                                                        const hasDeadlinePassed = app.deadline ? new Date() > new Date(app.deadline) : false;
+                                                        if (hasDeadlinePassed) {
+                                                            return (
+                                                                <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold bg-rose-50 dark:bg-rose-950/30 text-rose-600 dark:text-rose-400 border border-rose-100 dark:border-rose-900/30">
+                                                                    <XCircle size={13} /> Link Expired
+                                                                </span>
+                                                            );
+                                                        }
+                                                        return (
+                                                            <div className="flex flex-col items-end gap-1">
+                                                                <a href={sanitizeInterviewLink(app.interviewLink)} target="_blank" rel="noopener noreferrer"
+                                                                    className="px-4 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold flex items-center gap-1.5 transition-colors">
+                                                                    <Calendar size={12} /> Join Interview
+                                                                </a>
+                                                                {app.deadline && (
+                                                                    <span className="text-[10px] text-rose-500 dark:text-rose-400 font-semibold flex items-center gap-1.5">
+                                                                        <Clock size={11} /> Deadline: {new Date(app.deadline).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                        );
+                                                    })()}
                                                 </div>
                                             </div>
                                         );
@@ -832,7 +929,7 @@ export default function CandidateDashboard() {
                                     </div>
 
                                     {/* Interview card */}
-                                    {profile.interviewLink && profile.status === 'invited' && (
+                                    {profile.interviewLink && ['invited', 'pending'].includes(profile.status) && (
                                         <div className="bg-indigo-600 rounded-xl p-5 text-white relative overflow-hidden">
                                             <div className="absolute -right-4 -bottom-4 opacity-10"><BriefcaseBusiness size={80} /></div>
                                             <div className="relative">

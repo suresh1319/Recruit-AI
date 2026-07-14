@@ -1,15 +1,17 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { CalendarClock, Loader2, Bot, Mail, MessageSquare, CheckCircle2, ChevronDown, Check, X } from 'lucide-react';
-import * as Collapsible from '@radix-ui/react-collapsible';
+import { 
+    CalendarClock, Loader2, Bot, Mail, CheckCircle2, Check, X, ArrowUpRight 
+} from 'lucide-react';
 import { API_BASE_URL } from '@/lib/api';
+import { toast } from 'sonner';
 
 export default function SchedulesTab() {
     const [interviews, setInterviews] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
-    const [openRowId, setOpenRowId] = useState(null);
-    const [isRegenerating, setIsRegenerating] = useState({});
+    const navigate = useNavigate();
 
     useEffect(() => {
         fetchInterviews();
@@ -27,23 +29,11 @@ export default function SchedulesTab() {
         }
     };
 
-    const handleRegenerate = async (interviewId, rawId) => {
-        if (!interviewId) {
-            console.error('Missing interviewId for regeneration');
-            return;
-        }
-        setIsRegenerating(prev => ({ ...prev, [rawId]: true }));
-        try {
-            const response = await fetch(`${API_BASE_URL}/api/interviews/${interviewId}/analyze`, {
-                method: 'POST'
-            });
-            if (response.ok) {
-                await fetchInterviews();
-            }
-        } catch (error) {
-            console.error('Regeneration error:', error);
-        } finally {
-            setIsRegenerating(prev => ({ ...prev, [rawId]: false }));
+    const handleViewReport = (interviewId) => {
+        if (interviewId) {
+            navigate(`/report/${interviewId}`);
+        } else {
+            toast.info("Interview report not available yet.");
         }
     };
 
@@ -108,7 +98,7 @@ export default function SchedulesTab() {
                 </Card>
                 <Card className="p-5 border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col items-center justify-center text-center bg-emerald-50 dark:bg-emerald-950/20 relative overflow-hidden">
                     <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/10 rounded-full blur-2xl -translate-y-1/2 translate-x-1/2" />
-                    <div className="h-10 w-10 rounded-full bg-emerald-100 dark:bg-emerald-900/50 text-emerald-600 dark:text-emerald-400 flex items-center justify-center mb-3 z-10">
+                    <div className="h-10 w-10 rounded-full bg-emerald-100 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400 flex items-center justify-center mb-3 z-10">
                         <Bot size={20} />
                     </div>
                     <h3 className="font-bold text-slate-900 dark:text-slate-200 z-10">AI Auto-Selected Results</h3>
@@ -132,23 +122,16 @@ export default function SchedulesTab() {
                                  <th className="p-4 pr-6 text-right">Report</th>
                              </tr>
                         </thead>
-                        {isLoading ? (
-                            <tbody className="bg-white dark:bg-slate-900">
+                        <tbody className="divide-y divide-slate-100 dark:divide-slate-800 bg-white dark:bg-slate-900">
+                            {isLoading ? (
                                 <tr>
                                     <td colSpan="4" className="p-12 text-center">
                                         <Loader2 className="h-8 w-8 animate-spin text-slate-300 mx-auto" />
                                     </td>
                                 </tr>
-                            </tbody>
-                        ) : interviews.map((interview) => (
-                            <Collapsible.Root
-                                key={interview.id}
-                                open={openRowId === interview.id}
-                                onOpenChange={(isOpen) => setOpenRowId(isOpen ? interview.id : null)}
-                                asChild
-                            >
-                                <tbody className="divide-y divide-slate-100 dark:divide-slate-800 bg-white dark:bg-slate-900 border-b-0">
-                                    <tr className="hover:bg-slate-50/50 dark:hover:bg-slate-800/50 transition-colors">
+                            ) : interviews.length > 0 ? (
+                                interviews.map((interview) => (
+                                    <tr key={interview.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/50 transition-colors">
                                         <td className="p-4 pl-6">
                                             <p className="font-bold text-slate-900 dark:text-slate-100">{interview.candidate}</p>
                                             <p className="text-xs text-slate-500 dark:text-slate-400">{interview.role}</p>
@@ -166,53 +149,26 @@ export default function SchedulesTab() {
                                             />
                                         </td>
                                         <td className="p-4 pr-6 text-right">
-                                            <Collapsible.Trigger asChild>
-                                                <Button variant="ghost" size="sm" className="text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 font-semibold gap-2" disabled={interview.status !== 'Completed'}>
-                                                    View Report <ChevronDown size={14} className={`transition-transform ${openRowId === interview.id ? 'rotate-180' : ''}`} />
-                                                </Button>
-                                            </Collapsible.Trigger>
+                                            <Button 
+                                                variant="ghost" 
+                                                size="sm" 
+                                                className="text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 font-semibold gap-2" 
+                                                disabled={interview.status !== 'Completed'}
+                                                onClick={() => handleViewReport(interview.interviewId)}
+                                            >
+                                                View Report <ArrowUpRight size={14} />
+                                            </Button>
                                         </td>
                                     </tr>
-                                    <Collapsible.Content asChild>
-                                        <tr>
-                                             <td colSpan="4" className="p-0 border-b border-slate-200 dark:border-slate-800">
-                                                <div className="bg-slate-50 dark:bg-slate-950 p-6 border-l-4 border-indigo-500 mx-auto mx-4 my-2 rounded-r-xl shadow-inner mr-4">
-                                                    <div className="flex items-start gap-4">
-                                                        <div className="p-3 bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-slate-100 dark:border-slate-800">
-                                                            <MessageSquare size={24} className="text-indigo-500 dark:text-indigo-400" />
-                                                        </div>
-                                                        <div className="flex-1">
-                                                            <div className="flex items-center justify-between mb-2">
-                                                                <h4 className="font-bold text-slate-900 dark:text-slate-100">AI Screening Summary</h4>
-                                                                {interview.status === 'Completed' && (
-                                                                    <Button 
-                                                                        variant="ghost" 
-                                                                        size="sm" 
-                                                                        onClick={() => handleRegenerate(interview.interviewId, interview.id)}
-                                                                        disabled={isRegenerating[interview.id]}
-                                                                        className="text-[10px] uppercase tracking-wider font-bold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 gap-1.5"
-                                                                    >
-                                                                        {isRegenerating[interview.id] ? <Loader2 size={12} className="animate-spin" /> : <Bot size={12} />}
-                                                                        {isRegenerating[interview.id] ? 'Regenerating...' : 'Regenerate Report'}
-                                                                    </Button>
-                                                                )}
-                                                            </div>
-                                                            <p className="text-slate-600 dark:text-slate-300 text-sm leading-relaxed mb-6 bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 min-h-[100px] whitespace-pre-wrap">
-                                                                {interview.aiSummary || (isRegenerating[interview.id] ? 'Generating screening report...' : 'No analysis available yet. Click regenerate to trigger AI screening report.')}
-                                                            </p>
-
-                                                            <div className="flex justify-end border-t border-slate-200 dark:border-slate-800 pt-4">
-                                                                <p className="text-xs text-slate-500 italic">This report is for the Director of Engineering's review.</p>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    </Collapsible.Content>
-                                </tbody>
-                            </Collapsible.Root>
-                        ))}
+                                ))
+                            ) : (
+                                <tr>
+                                    <td colSpan="4" className="p-8 text-center text-slate-400 text-sm">
+                                        No interviews found.
+                                    </td>
+                                </tr>
+                            )}
+                        </tbody>
                     </table>
                 </div>
             </Card>

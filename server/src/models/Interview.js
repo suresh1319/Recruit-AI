@@ -45,7 +45,17 @@ const interviewSchema = new mongoose.Schema({
     recordingPath: {
         type: String,
         default: null
-    }
+    },
+    proctoringEvents: [{
+        type: {
+            type: String,
+            required: true
+        },
+        timestamp: {
+            type: Date,
+            default: Date.now
+        }
+    }]
 }, { timestamps: true });
 
 export default mongoose.model('Interview', interviewSchema);

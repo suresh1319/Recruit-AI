@@ -8,6 +8,7 @@ import InterviewRoom from './pages/InterviewRoom';
 import CandidateDetails from './pages/CandidateDetails';
 import CandidateDashboard from './pages/CandidateDashboard';
 import JobDetails from './pages/JobDetails';
+import JobCandidatesDashboard from './pages/JobCandidatesDashboard';
 import SyncUser from './components/SyncUser';
 import { Toaster } from 'sonner';
 
@@ -39,7 +40,12 @@ function App() {
           path="/candidate/:id"
           element={<CandidateDetails />} />
 
+        <Route
+          path="/report/:interviewId"
+          element={<CandidateDetails />} />
+
         <Route path="/job/:id" element={<JobDetails />} />
+        <Route path="/job/:id/candidates" element={<JobCandidatesDashboard />} />
       </Routes>
     </div>
   )

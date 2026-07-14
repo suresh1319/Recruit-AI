@@ -27,13 +27,14 @@ export default function CandidatesTab() {
         name: c.name,
         email: c.email || 'N/A',
         phone: c.phone || 'N/A',
-        role: c.role || 'N/A',
+        role: c.role || '',
         status: c.status || 'pending',
         jobMatchScores: c.jobMatchScores || [],
         matchScore: c.matchScore || 0,
         appliedOn: c.createdAt ? new Date(c.createdAt).toLocaleDateString() : 'N/A',
         autoSelected: c.autoSelected || false,
-        skills: c.skills || []
+        skills: c.skills || [],
+        interviewLink: c.interviewLink || null
     });
 
     useEffect(() => {
@@ -116,8 +117,13 @@ export default function CandidatesTab() {
             if (response.ok) {
                 const data = await response.json();
                 toast.success(`Invite sent! Deadline: ${new Date(data.expiresAt).toLocaleDateString()}`);
+                // Find the job title from local recruiterJobs so the badge
+                // can immediately show "Invited for <role>" without a page reload.
+                const selectedJob = recruiterJobs.find(j => j._id === selectedJobId);
                 const updatedCandidates = candidates.map(c =>
-                    c.id === candidateId ? { ...c, status: 'Invited' } : c
+                    c.id === candidateId
+                        ? { ...c, status: 'Invited', role: selectedJob?.title || c.role }
+                        : c
                 );
                 setCandidates(updatedCandidates);
                 setInvitingId(null);
@@ -283,36 +289,13 @@ export default function CandidatesTab() {
                             c.email.toLowerCase().includes(searchQuery.toLowerCase())
                         ).slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage).map((candidate) => (
                              <Card key={candidate.id} className="p-5 border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-md transition-all bg-white dark:bg-slate-900/50 relative">
-                                {candidate.status === 'pending' && (
+                                {candidate.status === 'pending' ? (
                                     <span className="absolute top-4 right-4 px-2 py-1 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-[10px] font-bold uppercase rounded">new</span>
-                                )}
+                                ) : null}
+
                                 <div className="mb-4">
-                                    <h3 className="font-bold text-slate-900 dark:text-slate-100 text-lg mb-1">{candidate.name}</h3>
-                                    <p className="text-sm text-slate-600 dark:text-slate-400 mb-2">{maskEmail(candidate.email)}</p>
-                                    
-                                    {getRecruiterScores(candidate.jobMatchScores).length > 0 && (
-                                        <div className="mt-3 p-3 bg-slate-50 dark:bg-slate-950/50 rounded-lg border border-slate-100 dark:border-slate-800">
-                                            {getRecruiterScores(candidate.jobMatchScores).slice(0, 1).map((match, idx) => (
-                                                <div key={idx} className="space-y-2">
-                                                    <div className="flex items-center justify-between">
-                                                        <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">AI Match Score</span>
-                                                        <span className={`text-xs font-bold ${match.score > 85 ? 'text-emerald-600 dark:text-emerald-400' : match.score > 70 ? 'text-amber-600 dark:text-amber-400' : 'text-red-600 dark:text-red-400'}`}>
-                                                            {match.score}%
-                                                        </span>
-                                                    </div>
-                                                    <div className="h-1.5 w-full bg-slate-200 dark:bg-slate-800 rounded-full overflow-hidden">
-                                                        <div
-                                                            className={`h-full rounded-full transition-all duration-500 ${match.score > 85 ? 'bg-emerald-500' : match.score > 70 ? 'bg-amber-500' : 'bg-red-500'}`}
-                                                            style={{ width: `${match.score}%` }}
-                                                        />
-                                                    </div>
-                                                    <p className="text-[10px] text-slate-500 dark:text-slate-400 font-medium truncate" title={match.title}>
-                                                        Matched for: <span className="text-slate-700 dark:text-slate-300">{match.title}</span>
-                                                    </p>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    )}
+                                    <h3 className="font-bold text-slate-900 dark:text-slate-100 text-lg mb-0.5 pr-16">{candidate.name}</h3>
+                                    <p className="text-sm text-slate-600 dark:text-slate-400">{maskEmail(candidate.email)}</p>
                                 </div>
 
                                 {candidate.skills && candidate.skills.length > 0 && (
@@ -330,6 +313,7 @@ export default function CandidatesTab() {
                                     </div>
                                 )}
 
+                                {/* Bottom row — clean: just date + delete + view */}
                                  <div className="flex items-center justify-between pt-4 border-t border-slate-100 dark:border-slate-800">
                                     <span className="text-xs text-slate-600 dark:text-slate-500 font-medium">Added {candidate.appliedOn}</span>
                                     <div className="flex gap-2">
@@ -367,14 +351,13 @@ export default function CandidatesTab() {
                                 <tr className="bg-slate-50 dark:bg-slate-950 border-b border-slate-200 dark:border-slate-800 text-xs uppercase font-bold text-slate-500 dark:text-slate-400 tracking-wider">
                                     <th className="p-4 pl-6">Candidate</th>
                                     <th className="p-4">Applied On</th>
-                                    <th className="p-4">Status & AI Match</th>
                                     <th className="p-4 pr-6 text-right">Actions</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100 dark:divide-slate-800 bg-white dark:bg-slate-900">
                                 {isLoading ? (
                                     <tr>
-                                        <td colSpan="4" className="p-12 text-center">
+                                        <td colSpan="3" className="p-12 text-center">
                                             <div className="flex flex-col items-center justify-center">
                                                 <Loader2 className="h-8 w-8 animate-spin text-slate-300 mb-2" />
                                                 <p className="text-sm text-slate-500 font-medium">Loading candidates...</p>
@@ -402,35 +385,7 @@ export default function CandidatesTab() {
                                                 </div>
                                             </td>
                                             <td className="p-4">
-                                               
                                                 <p className="text-xs text-slate-500 dark:text-slate-400">Applied {candidate.appliedOn}</p>
-                                            </td>
-                                            <td className="p-4">
-                                                <div className="flex flex-col items-start gap-2">
-                                                    <StatusBadge status={candidate.status} autoSelected={candidate.autoSelected} />
-                                                    {getRecruiterScores(candidate.jobMatchScores).length > 0 ? (
-                                                        <div className="w-full">
-                                                            {getRecruiterScores(candidate.jobMatchScores).slice(0, 1).map((match, idx) => (
-                                                                <div key={idx} className="flex flex-col gap-1">
-                                                                    <div className="flex items-center gap-2 w-full max-w-[120px]">
-                                                                          <div className="h-1.5 flex-1 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
-                                                                            <div
-                                                                                className={`h-full rounded-full ${match.score > 85 ? 'bg-emerald-500' : match.score > 70 ? 'bg-amber-500' : 'bg-red-500'}`}
-                                                                                style={{ width: `${match.score}%` }}
-                                                                            />
-                                                                        </div>
-                                                                        <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">{match.score}%</span>
-                                                                    </div>
-                                                                    <p className="text-[10px] text-slate-400 font-medium truncate max-w-[120px]" title={match.title}>
-                                                                        for {match.title}
-                                                                    </p>
-                                                                </div>
-                                                            ))}
-                                                        </div>
-                                                    ) : (
-                                                        <span className="text-[10px] text-slate-400 italic">No score for your jobs</span>
-                                                    )}
-                                                </div>
                                             </td>
                                             <td className="p-4 pr-6 text-right">
                                                 <div className="flex justify-end gap-2">
@@ -442,62 +397,6 @@ export default function CandidatesTab() {
                                                     >
                                                         <Eye size={14} /> View
                                                     </Button>
-                                                    {['Screening Pending', 'pending', 'matched'].includes(candidate.status) && (
-                                                        <div className="flex items-center gap-2">
-                                                            {invitingId === candidate.id ? (
-                                                                <div className="flex items-center gap-2 animate-in slide-in-from-right-2">
-                                                                    <select 
-                                                                        className="text-xs border rounded p-1 bg-white dark:bg-slate-800 dark:border-slate-700"
-                                                                        value={selectedJobId}
-                                                                        onChange={(e) => setSelectedJobId(e.target.value)}
-                                                                    >
-                                                                        <option value="">Select Job</option>
-                                                                        {recruiterJobs.map(j => (
-                                                                            <option key={j._id} value={j._id}>{j.title}</option>
-                                                                        ))}
-                                                                    </select>
-                                                                    <select 
-                                                                        className="text-xs border rounded p-1 bg-white dark:bg-slate-800 dark:border-slate-700"
-                                                                        value={deadlineDays}
-                                                                        onChange={(e) => setDeadlineDays(Number(e.target.value))}
-                                                                    >
-                                                                        <option value={1}>1 Day</option>
-                                                                        <option value={3}>3 Days</option>
-                                                                        <option value={7}>7 Days</option>
-                                                                        <option value={14}>14 Days</option>
-                                                                    </select>
-                                                                    <Button
-                                                                        size="sm"
-                                                                        className="bg-emerald-600 hover:bg-emerald-700 text-white h-8"
-                                                                        onClick={() => handleSendInvite(candidate.id)}
-                                                                    >
-                                                                        Confirm
-                                                                    </Button>
-                                                                    <Button
-                                                                        size="sm"
-                                                                        variant="ghost"
-                                                                        className="h-8 w-8 p-0"
-                                                                        onClick={() => setInvitingId(null)}
-                                                                    >
-                                                                        <X size={14} />
-                                                                    </Button>
-                                                                </div>
-                                                            ) : (
-                                                                <Button
-                                                                    size="sm"
-                                                                    className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg gap-1.5 h-8 transition-all"
-                                                                    onClick={() => setInvitingId(candidate.id)}
-                                                                >
-                                                                    <Mail size={14} /> Send Invite
-                                                                </Button>
-                                                            )}
-                                                        </div>
-                                                    )}
-                                                    {candidate.status === 'Interviewed' && (
-                                                        <Button size="sm" variant="outline" className="border-slate-200 text-slate-700 bg-white hover:bg-slate-50 rounded-lg gap-1.5 h-8">
-                                                            <CheckCircle2 size={14} className="text-emerald-500" /> Auto-Select Proceed
-                                                        </Button>
-                                                    )}
                                                     <Button
                                                         size="sm"
                                                         variant="outline"
@@ -512,7 +411,7 @@ export default function CandidatesTab() {
                                     ))
                                 ) : (
                                     <tr>
-                                        <td colSpan="4" className="p-8 text-center text-slate-400 text-sm">
+                                        <td colSpan="3" className="p-8 text-center text-slate-400 text-sm">
                                             No candidates found. Upload a resume to begin.
                                         </td>
                                     </tr>

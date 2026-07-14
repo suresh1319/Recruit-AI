@@ -26,7 +26,7 @@ const CandidateSchema = new mongoose.Schema(
         },
         status: {
             type: String,
-            enum: ['pending', 'calling', 'called', 'scheduled', 'rejected', 'matched', 'invited', 'selected'],
+            enum: ['pending', 'calling', 'called', 'scheduled', 'rejected', 'matched', 'invited', 'sending', 'selected'],
             default: 'pending',
         },
         notes: {
@@ -56,6 +56,26 @@ const CandidateSchema = new mongoose.Schema(
             type: mongoose.Schema.Types.ObjectId,
             ref: 'Job'
         },
+        applications: [
+            {
+                jobId: {
+                    type: mongoose.Schema.Types.ObjectId,
+                    ref: 'Job'
+                },
+                status: {
+                    type: String,
+                    enum: ['pending', 'calling', 'called', 'scheduled', 'rejected', 'matched', 'invited', 'sending', 'selected'],
+                    default: 'pending'
+                },
+                interviewLink: {
+                    type: String
+                },
+                rejectionReason: {
+                    type: String,
+                    default: null
+                }
+            }
+        ],
         jobMatchScores: [
             {
                 jobId: {

@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import Candidate from '../models/Candidate.js';
 import Job from '../models/Job.js';
 import Interview from '../models/Interview.js';
@@ -33,17 +34,91 @@ export const getMyApplications = async (req, res) => {
         await connectDB();
         const candidate = await Candidate.findOne({ clerkId });
         if (!candidate) return res.status(404).json({ error: 'Candidate not found' });
-        const appliedJobs = await Job.find({ candidatesApplied: candidate._id });
-        const applications = appliedJobs.map(job => ({
-            jobId: job._id,
-            jobTitle: job.title,
-            department: job.department,
-            location: job.location,
-            employmentType: job.employmentType,
-            appliedOn: job.updatedAt,
-            applicationStatus: candidate.status,
-            interviewLink: candidate.interviewLink || null,
+        const appliedJobs = await Job.find({
+            $or: [
+                { candidatesApplied: candidate._id },
+                { _id: candidate.jobId }
+            ]
+        });
+
+        let updated = false;
+        if (!candidate.applications) {
+            candidate.applications = [];
+            updated = true;
+        }
+
+        const applications = await Promise.all(appliedJobs.map(async (job) => {
+            const isTargetJob = candidate.jobId && candidate.jobId.toString() === job._id.toString();
+            
+            let subApp = candidate.applications?.find(app => app.jobId && app.jobId.toString() === job._id.toString());
+            
+            if (!subApp) {
+                if (isTargetJob) {
+                    candidate.applications.push({
+                        jobId: job._id,
+                        status: candidate.status,
+                        interviewLink: candidate.interviewLink || null
+                    });
+                    updated = true;
+                    subApp = candidate.applications[candidate.applications.length - 1];
+                } else {
+                    candidate.applications.push({
+                        jobId: job._id,
+                        status: 'pending'
+                    });
+                    updated = true;
+                    subApp = candidate.applications[candidate.applications.length - 1];
+                }
+            }
+
+            let status = 'pending';
+            let interviewLink = null;
+            
+            if (subApp) {
+                status = subApp.status;
+                interviewLink = subApp.interviewLink || null;
+            } else if (isTargetJob) {
+                status = candidate.status;
+                interviewLink = candidate.interviewLink || null;
+            } else if (job.candidatesMatched.some(id => id.toString() === candidate._id.toString())) {
+                status = 'matched';
+            } else if (candidate.status === 'rejected' && (candidate.jobId ? candidate.jobId.toString() === job._id.toString() : candidate.role === job.title)) {
+                status = 'rejected';
+            }
+            
+            if (interviewLink && ['pending', 'invited'].includes(status)) {
+                status = 'invited';
+            }
+
+            let deadline = null;
+            if (interviewLink) {
+                const parts = interviewLink.split('/');
+                const interviewId = parts[parts.length - 1];
+                if (interviewId) {
+                    const interview = await Interview.findOne({ interviewId }).select('expiresAt').lean();
+                    if (interview) {
+                        deadline = interview.expiresAt;
+                    }
+                }
+            }
+
+            return {
+                jobId: job._id,
+                jobTitle: job.title,
+                department: job.department,
+                location: job.location,
+                employmentType: job.employmentType,
+                appliedOn: job.updatedAt,
+                applicationStatus: status,
+                interviewLink,
+                deadline,
+            };
         }));
+
+        if (updated) {
+            await candidate.save();
+        }
+
         res.status(200).json({ applications, candidateStatus: candidate.status });
     } catch (error) {
         console.error('My applications error:', error);
@@ -54,11 +129,108 @@ export const getMyApplications = async (req, res) => {
 export const getCandidateById = async (req, res) => {
     try {
         const { candidateId } = req.params;
-        if(candidateId === 'me') return; 
+        // Guard: if somehow 'me' reaches this handler, redirect to the correct endpoint
+        if (candidateId === 'me') return res.status(400).json({ error: 'Use GET /me for the current user profile' });
         await connectDB();
         const candidate = await Candidate.findById(candidateId).populate('jobMatchScores.jobId', 'title department name status');
         if (!candidate) return res.status(404).json({ error: 'Candidate not found' });
-        res.status(200).json(candidate);
+        
+        const candidateObj = candidate.toObject();
+
+        const extractInterviewId = (link) => {
+            if (!link) return null;
+            try {
+                const cleanLink = link.trim().replace(/\/+$/, '');
+                const parts = cleanLink.split('/');
+                return parts[parts.length - 1] || null;
+            } catch (e) {
+                return null;
+            }
+        };
+
+        const formatProctoring = (i) => {
+            if (!i) return null;
+            const events = i.proctoringEvents || [];
+            const noFace = events.filter(e => e.type === 'NO_FACE').length;
+            const multiple = events.filter(e => e.type === 'MULTIPLE_FACES').length;
+            const lookingAway = events.filter(e => e.type === 'LOOKING_AWAY').length;
+            const eyesClosed = events.filter(e => e.type === 'EYES_CLOSED').length;
+            const tabSwitches = events.filter(e => e.type === 'TAB_SWITCH').length;
+            const fullscreenExits = events.filter(e => e.type === 'FULLSCREEN_EXITED').length;
+
+            const violationPoints = (noFace * 3) + (lookingAway * 1.5) + (tabSwitches * 10) + (fullscreenExits * 15);
+            const facePresentRate = Math.max(0, Math.min(100, Math.round(100 - violationPoints)));
+
+            return {
+                noFace,
+                multipleFaces: multiple,
+                lookingAway,
+                eyesClosed,
+                tabSwitches,
+                fullscreenExits,
+                facePresentRate
+            };
+        };
+
+        const formattedInterview = (i) => {
+            if (!i) return null;
+            const verdictMatch = i.analysis?.match(/SUMMARY_VERDICT:\s*([^\n\r]+)/i);
+            const verdict = verdictMatch ? verdictMatch[1].trim() : (i.analysis ? 'Analyzed' : null);
+            
+            return {
+                id: i._id,
+                interviewId: i.interviewId,
+                jobTitle: i.jobTitle,
+                companyName: i.companyName,
+                candidateName: i.candidateName,
+                status: i.status === 'completed' ? 'Completed' : i.status === 'ongoing' ? 'Ongoing' : 'Scheduled',
+                time: new Date(i.createdAt).toLocaleDateString(),
+                aiRecommendation: verdict,
+                aiScore: i.score || 0,
+                aiSummary: i.analysis,
+                transcript: i.transcript || [],
+                proctoringEvents: i.proctoringEvents || [],
+                proctoring: formatProctoring(i)
+            };
+        };
+
+        let interviewData = null;
+        if (candidate.interviewLink) {
+            const interviewId = extractInterviewId(candidate.interviewLink);
+            if (interviewId) {
+                const interviewDoc = await Interview.findOne({ interviewId });
+                if (interviewDoc) {
+                    interviewData = formattedInterview(interviewDoc);
+                }
+            }
+        }
+
+        if (candidateObj.applications && candidateObj.applications.length > 0) {
+            for (let i = 0; i < candidateObj.applications.length; i++) {
+                const app = candidateObj.applications[i];
+                if (app.interviewLink) {
+                    const interviewId = extractInterviewId(app.interviewLink);
+                    if (interviewId) {
+                        const interviewDoc = await Interview.findOne({ interviewId });
+                        if (interviewDoc) {
+                            app.interview = formattedInterview(interviewDoc);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Fallback: if main interviewLink was blank or had no match, check if any application has a populated interview
+        if (!interviewData && candidateObj.applications && candidateObj.applications.length > 0) {
+            const appWithInterview = candidateObj.applications.find(app => app.interview);
+            if (appWithInterview) {
+                interviewData = appWithInterview.interview;
+            }
+        }
+
+        candidateObj.interview = interviewData;
+
+        res.status(200).json(candidateObj);
     } catch (error) {
         console.error('Fetch candidate details error:', error);
         res.status(500).json({ error: 'Failed to fetch candidate details' });
@@ -245,56 +417,145 @@ export const sendInvite = async (req, res) => {
         const { candidateId } = req.params;
         const { jobId, deadlineDays = 7 } = req.body;
 
-        if (!candidateId || candidateId.length !== 24) return res.status(400).json({ error: 'Invalid candidate ID' });
+        if (!candidateId || !mongoose.isValidObjectId(candidateId))
+            return res.status(400).json({ error: 'Invalid candidate ID' });
 
         const candidate = await Candidate.findById(candidateId);
         if (!candidate) return res.status(404).json({ error: 'Candidate not found' });
+        if (!candidate.email) return res.status(400).json({ error: 'Candidate has no email address.' });
 
-        // Ensure email is sent only once
-        if (candidate.status === 'invited' || candidate.interviewLink) {
-            return res.status(400).json({ error: 'An invite has already been sent to this candidate.' });
-        }
-
-        if (!candidate.email) {
-            return res.status(400).json({ error: 'Candidate does not have an email address.' });
-        }
-
-        const job = await Job.findById(jobId);
-        const interviewId = `${candidate.name.toLowerCase().replace(/\s+/g, '-')}-${Date.now()}`;
-
-        // Deadline logic
-        const expiresAt = new Date();
-        expiresAt.setDate(expiresAt.getDate() + deadlineDays);
+        // If already invited to this specific job, return existing link
+        const existingApp = candidate.applications?.find(app => app.jobId && app.jobId.toString() === jobId?.toString());
+        const isAlreadyInvitedForThisJob = (existingApp && existingApp.interviewLink && ['invited', 'called', 'scheduled'].includes(existingApp.status)) ||
+                                           (candidate.jobId && candidate.jobId.toString() === jobId?.toString() && candidate.interviewLink && ['invited', 'called', 'scheduled'].includes(candidate.status));
         
+        if (isAlreadyInvitedForThisJob) {
+            const link = existingApp ? existingApp.interviewLink : candidate.interviewLink;
+            return res.status(200).json({ message: 'Already invited', interviewLink: link });
+        }
+
+        const safeName = (candidate.name || 'candidate').toLowerCase().replace(/[^a-z0-9]/g, '-');
+        const interviewId = `${safeName}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+        const expiresAt = new Date();
+        expiresAt.setDate(expiresAt.getDate() + Number(deadlineDays) || 7);
         const interviewLink = `${PRIMARY_CLIENT_URL}/interview/${interviewId}`;
 
-        // Attempt to send the email first, before saving to database
-        const subject = `Interview Invitation for ${job?.title || candidate.role}`;
-        const html = `<p>Hi ${candidate.name},</p><p>You are invited for an interview. Deadline: ${expiresAt.toLocaleDateString()}</p><p><a href="${interviewLink}">${interviewLink}</a></p>`;
-        
-        const emailSent = await sendEmail(candidate.email, subject, html, html);
-
-        if (!emailSent) {
-            return res.status(500).json({ error: 'Failed to send email. Please check your email server credentials.' });
+        let job = null;
+        if (jobId && mongoose.isValidObjectId(jobId)) {
+            job = await Job.findById(jobId).catch(() => null);
         }
 
-        // If email was successful, then save to DB
+        const jobTitle = job?.title || candidate.role || 'Technical Interview';
+
         await Interview.create({
             interviewId,
-            jobTitle: job?.title || candidate.role,
+            jobTitle,
             companyName: 'RecruitAI',
-            candidateName: candidate.name,
+            candidateName: candidate.name || 'Candidate',
             status: 'available',
             expiresAt
         });
 
+        if (!candidate.applications) {
+            candidate.applications = [];
+        }
+        if (job) {
+            const appIndex = candidate.applications.findIndex(app => app.jobId && app.jobId.toString() === job._id.toString());
+            if (appIndex === -1) {
+                candidate.applications.push({
+                    jobId: job._id,
+                    status: 'invited',
+                    interviewLink
+                });
+            } else {
+                candidate.applications[appIndex].status = 'invited';
+                candidate.applications[appIndex].interviewLink = interviewLink;
+            }
+        }
         candidate.status = 'invited';
         candidate.interviewLink = interviewLink;
+        candidate.role = jobTitle;
+        candidate.jobId = job?._id || null;
         await candidate.save();
 
-        res.status(200).json({ message: 'Invite sent', interviewLink: candidate.interviewLink, expiresAt });
+        res.status(200).json({ message: 'Invite sent', interviewLink, expiresAt });
+
+        // Send email in background after response
+        const subject = `Interview Invitation — ${jobTitle}`;
+        const text = `Hi ${candidate.name || 'there'},\n\nYou have been invited to complete an AI-powered technical interview at RecruitAI.\n\nPlease complete it before: ${expiresAt.toLocaleDateString()}\n\nYou can start your interview by clicking the link below:\n${interviewLink}\n\nBest regards,\nRecruitAI Team`;
+        const html = `<p>Hi ${candidate.name || 'there'},</p><p>You have been invited for an AI interview at RecruitAI.</p><p>Please complete it before: <strong>${expiresAt.toLocaleDateString()}</strong></p><p><a href="${interviewLink}">Click here to start your interview</a></p>`;
+        
+        sendEmail(candidate.email, subject, text, html).then((success) => {
+            if (!success) {
+                console.error(`Background email failed for ${candidateId}`);
+            }
+        }).catch((err) => {
+            console.error(`Background email failed for ${candidateId}:`, err.message);
+        });
+
     } catch (error) {
-        console.error('Send invite error:', error);
-        res.status(500).json({ error: 'Failed to send invite' });
+        console.error('Send invite error:', error.message, error.stack);
+        res.status(500).json({ error: error.message || 'Failed to send invite' });
     }
 };
+
+export const updateCandidate = async (req, res) => {
+    try {
+        const { candidateId } = req.params;
+        if (!candidateId || !mongoose.isValidObjectId(candidateId)) {
+            return res.status(400).json({ error: 'Invalid candidate ID' });
+        }
+        await connectDB();
+        
+        const candidate = await Candidate.findById(candidateId);
+        if (!candidate) return res.status(404).json({ error: 'Candidate not found' });
+        
+        // Extract jobId from body or candidate
+        const targetJobId = req.body.jobId || candidate.jobId;
+
+        // Update candidate fields (excluding jobId from direct body assignment)
+        Object.keys(req.body).forEach(key => {
+            if (key !== 'jobId') {
+                candidate[key] = req.body[key];
+            }
+        });
+        
+        if (req.body.jobId) {
+            candidate.jobId = req.body.jobId;
+        }
+
+        // If status is updated, also update the specific application in candidate.applications
+        if (req.body.status && targetJobId) {
+            if (!candidate.applications) {
+                candidate.applications = [];
+            }
+            const appIndex = candidate.applications.findIndex(app => app.jobId && app.jobId.toString() === targetJobId.toString());
+            const reason = req.body.status === 'rejected' ? 'Rejected manually by Recruiter' : null;
+            if (appIndex === -1) {
+                candidate.applications.push({
+                    jobId: targetJobId,
+                    status: req.body.status,
+                    interviewLink: candidate.interviewLink,
+                    rejectionReason: reason
+                });
+            } else {
+                candidate.applications[appIndex].status = req.body.status;
+                if (req.body.status === 'rejected') {
+                    candidate.applications[appIndex].rejectionReason = reason;
+                } else {
+                    candidate.applications[appIndex].rejectionReason = null;
+                }
+                if (candidate.interviewLink && req.body.status === 'invited') {
+                    candidate.applications[appIndex].interviewLink = candidate.interviewLink;
+                }
+            }
+        }
+        
+        await candidate.save();
+        res.status(200).json(candidate);
+    } catch (error) {
+        console.error('Update candidate error:', error);
+        res.status(500).json({ error: 'Failed to update candidate status' });
+    }
+};
+

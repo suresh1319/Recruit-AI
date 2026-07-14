@@ -3,18 +3,20 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     Mic, MicOff, Video, VideoOff, PhoneOff,
-    Settings, MonitorUp, Wifi, Shield,
+    Settings, MonitorUp, Shield,
     MessageSquare, Bot, User, Clock, Loader2,
-    Volume2, Sparkles, ChevronRight, Send
+    Volume2, Sparkles, ChevronRight
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { io } from 'socket.io-client';
 import { API_BASE_URL, SOCKET_URL } from '@/lib/api';
+import { toast } from 'sonner';
+import { useFaceTracking } from '../hooks/useFaceTracking';
 
-const RESPONSE_END_SILENCE_MS = 7000;
-const MIN_ANSWER_TIME_MS = 8000;
-const MIN_ANSWER_WORDS = 6;
+const RESPONSE_END_SILENCE_MS = 3000;  // wait 3s of silence after speech ends
+const MIN_ANSWER_TIME_MS = 5000;        // or at least 5s of speaking
+const MIN_ANSWER_WORDS = 4;             // or at least 4 words
 const SPEAKING_LEVEL_THRESHOLD = 0.018;
 
 const InterviewRoom = () => {
@@ -54,6 +56,32 @@ const InterviewRoom = () => {
     const socketRef = useRef(null);
     const mediaRecorderRef = useRef(null);
     const recognitionRef = useRef(null);
+    const lastEventTimeRef = useRef({});
+
+    // Throttled helper to emit proctoring events via sockets
+    const emitInterviewEvent = (type) => {
+        if (!socketRef.current || !interviewId || !hasStartedRef.current) return;
+        const now = Date.now();
+        const lastSent = lastEventTimeRef.current[type] || 0;
+        if (now - lastSent > 3000) { // 3s throttle to avoid spamming
+            lastEventTimeRef.current[type] = now;
+            socketRef.current.emit('interview-event', {
+                interviewId,
+                type,
+                timestamp: now
+            });
+            console.log(`[PROCTORING] Emitted event to server: ${type}`);
+        }
+    };
+
+    // MediaPipe face tracking proctoring hook
+    const { faceStatus, isModelLoading } = useFaceTracking(
+        videoRef,
+        socketRef,
+        interviewId,
+        isCamOn,
+        hasStarted
+    );
 
     // Context refs for closures
     const isBotSpeakingRef = useRef(isBotSpeaking);
@@ -91,7 +119,10 @@ const InterviewRoom = () => {
         init();
 
         const interval = setInterval(() => {
-            if (hasStarted) setTimer(prev => prev + 1);
+            // Bug #6 fixed: use ref instead of stale closure.
+            // hasStarted is always `false` at mount (closure), but hasStartedRef.current
+            // is always up-to-date because the ref effect syncs it on every state change.
+            if (hasStartedRef.current) setTimer(prev => prev + 1);
         }, 1000);
 
         return () => {
@@ -122,6 +153,55 @@ const InterviewRoom = () => {
         }
     }, [transcription, interviewId, hasStarted]);
 
+    // Fullscreen Enforcer Change Listener
+    useEffect(() => {
+        const handleFullscreenChange = () => {
+            if (hasStartedRef.current && !document.fullscreenElement && !document.webkitFullscreenElement && !document.msFullscreenElement && statusRef.current === 'active') {
+                toast.warning("Fullscreen mode is required. Please stay in fullscreen to complete your interview.", {
+                    duration: 5000
+                });
+                emitInterviewEvent('FULLSCREEN_EXITED');
+            }
+        };
+        document.addEventListener('fullscreenchange', handleFullscreenChange);
+        document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+        document.addEventListener('msfullscreenchange', handleFullscreenChange);
+        return () => {
+            document.removeEventListener('fullscreenchange', handleFullscreenChange);
+            document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
+            document.removeEventListener('msfullscreenchange', handleFullscreenChange);
+        };
+    }, []);
+
+    // Tab Switching & Lost Focus Listener
+    useEffect(() => {
+        const handleVisibilityChange = () => {
+            if (hasStartedRef.current && document.visibilityState === 'hidden' && statusRef.current === 'active') {
+                toast.error("Warning: Tab switching is recorded as a violation. Please focus on the interview.", {
+                    duration: 5000
+                });
+                emitInterviewEvent('TAB_SWITCH');
+            }
+        };
+
+        const handleWindowBlur = () => {
+            if (hasStartedRef.current && statusRef.current === 'active') {
+                toast.error("Warning: Window lost focus. This event is recorded as a violation.", {
+                    duration: 5000
+                });
+                emitInterviewEvent('TAB_SWITCH');
+            }
+        };
+
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+        window.addEventListener('blur', handleWindowBlur);
+
+        return () => {
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
+            window.removeEventListener('blur', handleWindowBlur);
+        };
+    }, []);
+
     // Handle bot speaking when question changes
     useEffect(() => {
         if (!hasStarted) return;
@@ -130,6 +210,7 @@ const InterviewRoom = () => {
             handleBotSpeech(questions[currentQuestionIndex]);
         } else if (currentQuestionIndex >= questions.length && questions.length > 0) {
             setStatus('completed');
+            exitFullscreen();
             handleBotSpeech("Thank you for your time today. The interview is now complete. The recruiter will connect to you soon.");
 
             // Trigger analysis now that the interview is completed
@@ -160,6 +241,21 @@ const InterviewRoom = () => {
 
     const handleStartInterview = async () => {
         try {
+            // Request Fullscreen
+            if (document.documentElement.requestFullscreen) {
+                await document.documentElement.requestFullscreen().catch(err => {
+                    console.warn('Fullscreen request failed:', err);
+                });
+            } else if (document.documentElement.webkitRequestFullscreen) {
+                await document.documentElement.webkitRequestFullscreen().catch(err => {
+                    console.warn('Fullscreen webkit request failed:', err);
+                });
+            } else if (document.documentElement.msRequestFullscreen) {
+                await document.documentElement.msRequestFullscreen().catch(err => {
+                    console.warn('Fullscreen MS request failed:', err);
+                });
+            }
+
             // Initialize/Resume AudioContext on user interaction
             if (!audioContextRef.current) {
                 audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
@@ -181,7 +277,12 @@ const InterviewRoom = () => {
             const response = await fetch(`${API_BASE_URL}/api/interviews/${interviewId}/questions`);
             if (!response.ok) {
                 console.error(`Questions API error: ${response.status}`);
-                setError(`Failed to load interview: ${response.status === 404 ? 'Invalid Link' : 'Server Error'}`);
+                let errMsg = 'Failed to load interview.';
+                try {
+                    const data = await response.json();
+                    errMsg = data.error || errMsg;
+                } catch (e) {}
+                setError(errMsg);
                 return;
             }
             const data = await response.json();
@@ -305,9 +406,21 @@ const InterviewRoom = () => {
         candidateAudioLevelRef.current = 0;
     };
 
+    const resetSilenceTimer = () => {
+        if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+        
+        // If the bot is speaking or status is not active, don't run the silence timer
+        if (isBotSpeakingRef.current || statusRef.current !== 'active' || !hasStartedRef.current) return;
+
+        silenceTimerRef.current = setTimeout(() => {
+            console.log("10s silence detected. Automatically moving to next question...");
+            finalizeTurn();
+        }, 10000); // 10 seconds auto-next
+    };
+
     const initTranscription = async () => {
-        console.log('Initializing Deepgram STT...');
-        // Initialize Socket.io
+        console.log('Initializing Socket.io for proctoring...');
+        // Initialize Socket.io for proctoring/violations
         const socket = io(SOCKET_URL, {
             transports: ['websocket', 'polling'],
             reconnectionAttempts: 5,
@@ -316,87 +429,85 @@ const InterviewRoom = () => {
         socketRef.current = socket;
 
         socket.on('connect', () => {
-            console.log('Connected to backend via Socket.io');
+            console.log('Connected to backend via Socket.io (Proctoring Channel)');
             socket.emit('start_interview', { interviewId });
         });
 
         socket.on('connect_error', (err) => {
             console.error('Socket.io Connection Error:', err.message);
-            setError(`Connection Error: ${err.message}. Ensure backend is running.`);
         });
 
-        socket.on('transcription_ready', ({ provider, model }) => {
-            console.log(`Live transcription ready: ${provider} ${model}`);
-        });
+        // Initialize Browser Speech Recognition (Web Speech API)
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRecognition) {
+            console.error('Browser does not support Speech Recognition');
+            setError('Your browser does not support Speech Recognition. Please use Google Chrome or Edge.');
+            return;
+        }
 
-        socket.on('transcription_error', ({ message }) => {
-            console.error('Live transcription error:', message);
-            setError(message || 'Live transcription is unavailable.');
-        });
+        const recognition = new SpeechRecognition();
+        recognition.continuous = true;
+        recognition.interimResults = true;
+        recognition.lang = 'en-US';
 
-        socket.on('candidate_speech_started', () => {
-            lastResultTimeRef.current = Date.now();
-            if (!answerStartedAtRef.current) answerStartedAtRef.current = Date.now();
-            isCandidateSpeakingRef.current = true;
-            setIsCandidateSpeaking(true);
-        });
+        recognition.onstart = () => {
+            console.log('Speech recognition started');
+        };
 
-        socket.on('candidate_transcript', ({ text, isFinal }) => {
-            const cleanText = text?.trim();
-            if (!cleanText) return;
+        recognition.onresult = (event) => {
+            // Reset the 10s silence timer when the candidate speaks/updates result
+            resetSilenceTimer();
 
-            lastResultTimeRef.current = Date.now();
-            if (!answerStartedAtRef.current) answerStartedAtRef.current = Date.now();
-            isCandidateSpeakingRef.current = true;
-            setIsCandidateSpeaking(true);
+            let interimTranscript = '';
+            let finalTranscript = '';
 
-            if (isFinal) {
-                activeAnswerRef.current += (activeAnswerRef.current ? ' ' : '') + cleanText;
-            }
-
-            const currentFullText = (activeAnswerRef.current + (!isFinal ? ` ${cleanText}` : '')).trim();
-            latestFullTextRef.current = currentFullText;
-            upsertCandidateTranscript(currentFullText);
-            scheduleTurnCompletionCheck();
-        });
-
-        socket.on('candidate_utterance_end', () => {
-            scheduleTurnCompletionCheck();
-        });
-
-        // Initialize MediaRecorder - Use existing stream if available
-        try {
-            let recordingStream;
-            if (streamRef.current && streamRef.current.getAudioTracks().length > 0) {
-                console.log('Reusing existing audio stream for recording');
-                recordingStream = streamRef.current;
-            } else {
-                console.log('Requesting new audio stream for recording');
-                recordingStream = await navigator.mediaDevices.getUserMedia({
-                    audio: {
-                        echoCancellation: true,
-                        noiseSuppression: true,
-                        autoGainControl: true
-                    }
-                });
-            }
-
-            const mediaRecorder = new MediaRecorder(recordingStream, {
-                mimeType: 'audio/webm;codecs=opus'
-            });
-
-            mediaRecorder.ondataavailable = (event) => {
-                if (event.data.size > 0 && socket.connected) {
-                    socket.emit('audio_data', event.data);
+            for (let i = event.resultIndex; i < event.results.length; ++i) {
+                if (event.results[i].isFinal) {
+                    finalTranscript += event.results[i][0].transcript;
+                } else {
+                    interimTranscript += event.results[i][0].transcript;
                 }
-            };
+            }
 
-            mediaRecorder.start(250); // Send 250ms chunks
-            mediaRecorderRef.current = mediaRecorder;
-            console.log('MediaRecorder started');
+            if (finalTranscript) {
+                activeAnswerRef.current += (activeAnswerRef.current ? ' ' : '') + finalTranscript;
+            }
 
-        } catch (err) {
-            console.error('Error starting MediaRecorder:', err);
+            const currentFullText = (activeAnswerRef.current + (interimTranscript ? ` ${interimTranscript}` : '')).trim();
+            latestFullTextRef.current = currentFullText;
+            
+            if (currentFullText) {
+                lastResultTimeRef.current = Date.now();
+                if (!answerStartedAtRef.current) answerStartedAtRef.current = Date.now();
+                isCandidateSpeakingRef.current = true;
+                setIsCandidateSpeaking(true);
+                upsertCandidateTranscript(currentFullText);
+            }
+        };
+
+        recognition.onerror = (event) => {
+            console.error('Speech recognition error:', event.error);
+            if (event.error === 'not-allowed') {
+                setError('Microphone permission denied.');
+            }
+        };
+
+        recognition.onend = () => {
+            console.log('Speech recognition ended');
+            // Restart recognition if the interview is active and the bot is not speaking
+            if (hasStartedRef.current && statusRef.current === 'active' && !isBotSpeakingRef.current) {
+                try {
+                    recognition.start();
+                } catch (e) {}
+            }
+        };
+
+        recognitionRef.current = recognition;
+        
+        try {
+            recognition.start();
+        } catch (e) {
+            console.error('Failed to start speech recognition:', e);
         }
     };
 
@@ -429,54 +540,42 @@ const InterviewRoom = () => {
 
     const finalizeTurn = () => {
         const finalAnswer = latestFullTextRef.current.trim();
-        if (!finalAnswer) return;
-
-        setTranscription(prev => {
-            const newArr = [...prev];
-            const lastIdx = newArr.length - 1;
-            if (lastIdx >= 0 && newArr[lastIdx].speaker === 'Candidate' && newArr[lastIdx].isLive) {
-                newArr[lastIdx] = {
-                    ...newArr[lastIdx],
-                    isLive: false,
-                    text: finalAnswer
-                };
-            }
-            return newArr;
-        });
+        
+        if (finalAnswer) {
+            setTranscription(prev => {
+                const newArr = [...prev];
+                const lastIdx = newArr.length - 1;
+                if (lastIdx >= 0 && newArr[lastIdx].speaker === 'Candidate' && newArr[lastIdx].isLive) {
+                    newArr[lastIdx] = {
+                        ...newArr[lastIdx],
+                        isLive: false,
+                        text: finalAnswer
+                    };
+                }
+                return newArr;
+            });
+        } else {
+            // Append silent placeholder
+            const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            setTranscription(prev => [...prev, {
+                speaker: 'Candidate',
+                name: candidateName,
+                text: '[Candidate remained silent]',
+                time: timestamp
+            }]);
+        }
 
         activeAnswerRef.current = "";
         latestFullTextRef.current = "";
         answerStartedAtRef.current = 0;
         isCandidateSpeakingRef.current = false;
         setIsCandidateSpeaking(false);
-        handleNext();
-    };
 
-    const scheduleTurnCompletionCheck = () => {
         if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
         if (silenceCheckRef.current) clearTimeout(silenceCheckRef.current);
 
-        silenceCheckRef.current = setTimeout(() => {
-            const answerText = latestFullTextRef.current.trim();
-            const wordCount = answerText ? answerText.split(/\s+/).length : 0;
-            const silenceMs = Date.now() - lastResultTimeRef.current;
-            const answerAgeMs = answerStartedAtRef.current ? Date.now() - answerStartedAtRef.current : 0;
-            const micIsQuiet = candidateAudioLevelRef.current < SPEAKING_LEVEL_THRESHOLD;
-            const hasEnoughAnswer = wordCount >= MIN_ANSWER_WORDS || answerAgeMs >= MIN_ANSWER_TIME_MS;
-
-            if (
-                answerText &&
-                hasEnoughAnswer &&
-                silenceMs >= RESPONSE_END_SILENCE_MS &&
-                micIsQuiet &&
-                !isBotSpeakingRef.current
-            ) {
-                finalizeTurn();
-                return;
-            }
-
-            scheduleTurnCompletionCheck();
-        }, 1000);
+        // Advance to the next question
+        setCurrentQuestionIndex(prev => prev + 1);
     };
 
     const stopAllSpeech = () => {
@@ -535,6 +634,7 @@ const InterviewRoom = () => {
                         } catch (e) { }
                     }
                     setIsBotSpeaking(false);
+                    resetSilenceTimer();
                 };
 
                 utterance.onerror = (e) => {
@@ -545,17 +645,20 @@ const InterviewRoom = () => {
                             recognitionRef.current.start();
                         } catch (err) { }
                     }
+                    resetSilenceTimer();
                 };
 
                 window.speechSynthesis.speak(utterance);
             } else {
                 console.error("Browser does not support Speech Synthesis");
                 setIsBotSpeaking(false);
+                resetSilenceTimer();
             }
 
         } catch (err) {
             console.error('Bot speech error:', err);
             setIsBotSpeaking(false);
+            resetSilenceTimer();
         }
     };
 
@@ -583,8 +686,19 @@ const InterviewRoom = () => {
         finalizeTurn();
     };
 
+    const exitFullscreen = () => {
+        if (document.fullscreenElement) {
+            document.exitFullscreen().catch(e => console.warn('Exit fullscreen failed:', e));
+        } else if (document.webkitExitFullscreen) {
+            document.webkitExitFullscreen().catch(e => console.warn('Exit fullscreen failed:', e));
+        } else if (document.msExitFullscreen) {
+            document.msExitFullscreen().catch(e => console.warn('Exit fullscreen failed:', e));
+        }
+    };
+
     const handleEndCall = () => {
         if (window.confirm("Are you sure you want to end the interview?")) {
+            exitFullscreen();
             if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
                 mediaRecorderRef.current.stop();
             }
@@ -619,40 +733,36 @@ const InterviewRoom = () => {
                 syncAndAnalyze();
             }
 
-            navigate(`/candidate/dashboard`);
+            navigate(`/candidate-dashboard`);
         }
     };
 
     return (
-        <div className="dark h-screen bg-[#020617] text-slate-100 flex flex-col overflow-hidden font-sans selection:bg-indigo-500/30">
+        <div className="dark h-screen bg-[#0B0D17] text-slate-100 flex flex-col overflow-hidden font-sans selection:bg-indigo-500/30">
             {/* Force Background Reset */}
             <style dangerouslySetInnerHTML={{
                 __html: `
-                body, html, #root { background-color: #020617 !important; color: #f1f5f9 !important; }
+                body, html, #root { background-color: #0B0D17 !important; color: #f1f5f9 !important; }
                 .scrollbar-hide::-webkit-scrollbar { display: none; }
                 .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
             `}} />
 
             {/* Header */}
-            <header className="h-20 border-b border-white/5 bg-[#020617]/80 backdrop-blur-xl flex items-center justify-between px-8 shrink-0 z-40">
+            <header className="h-20 border-b border-white/5 bg-[#0B0D17]/80 backdrop-blur-xl flex items-center justify-between px-8 shrink-0 z-40">
                 <div className="flex items-center gap-5">
-                    <div className="w-12 h-12 rounded-2xl bg-indigo-600 flex items-center justify-center font-bold text-xl shadow-[0_0_20px_rgba(79,70,229,0.4)]">
-                        {candidateName.charAt(0)}
+                    <div className="px-4 py-2 rounded-xl bg-indigo-600/10 border border-indigo-500/20 text-xs font-bold text-indigo-400 uppercase tracking-widest">
+                        AI Technical Interview
                     </div>
-                    <div>
-                        <h1 className="text-base font-bold tracking-tight text-white flex items-center gap-2">
-                            {questions.length > 0 ? `AI Technical Interview` : 'Initializing Session...'}
-                        </h1>
-                        <div className="flex items-center gap-3 text-[11px] text-slate-400 font-medium">
-                            <span className="font-mono tracking-wider">{formatTime(timer)}</span>
-                        </div>
+                    <div className="flex items-center gap-2 text-slate-300 font-medium">
+                        <Clock size={16} className="text-indigo-400" />
+                        <span className="font-mono tracking-wider text-sm">{formatTime(timer)}</span>
                     </div>
                 </div>
 
                 <div className="flex items-center gap-4">
-                    <div className="hidden sm:flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-500/5 border border-emerald-500/10">
-                        <div className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]"></div>
-                        <span className="text-[10px] font-bold text-emerald-500 tracking-widest uppercase">HD Connection</span>
+                    <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-emerald-500/10 border border-emerald-500/20 shadow-[0_0_15px_rgba(16,185,129,0.15)]">
+                        <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.8)]"></div>
+                        <span className="text-[10px] font-black text-emerald-500 tracking-wider">HD CONNECTION</span>
                     </div>
                 </div>
             </header>
@@ -665,10 +775,10 @@ const InterviewRoom = () => {
                             initial={{ opacity: 0 }}
                             animate={{ opacity: 1 }}
                             exit={{ opacity: 0 }}
-                            className="absolute inset-0 z-50 flex items-center justify-center bg-[#020617]/95 backdrop-blur-xl p-6 text-center"
+                            className="absolute inset-0 z-50 flex items-center justify-center bg-[#0B0D17]/95 backdrop-blur-xl p-6 text-center"
                         >
-                            <Card className="max-w-md w-full bg-[#0f172a] border-white/10 p-10 rounded-[2.5rem] shadow-2xl space-y-8">
-                                <div className="w-24 h-24 bg-indigo-600/10 rounded-[2rem] flex items-center justify-center mx-auto border border-indigo-500/20 shadow-inner">
+                            <Card className="max-w-md w-full bg-[#16192B]/90 border-white/10 p-10 rounded-[2rem] shadow-[0_30px_60px_-15px_rgba(0,0,0,0.8)] space-y-8 backdrop-blur-2xl">
+                                <div className="w-24 h-24 bg-indigo-600/10 rounded-2xl flex items-center justify-center mx-auto border border-indigo-500/20 shadow-inner">
                                     <Bot size={48} className="text-indigo-400" />
                                 </div>
                                 <div className="space-y-3">
@@ -702,10 +812,10 @@ const InterviewRoom = () => {
                             initial={{ opacity: 0 }}
                             animate={{ opacity: 1 }}
                             exit={{ opacity: 0 }}
-                            className="absolute inset-0 z-50 flex items-center justify-center bg-[#020617]/95 backdrop-blur-xl p-6 text-center"
+                            className="absolute inset-0 z-50 flex items-center justify-center bg-[#0B0D17]/95 backdrop-blur-xl p-6 text-center"
                         >
-                            <Card className="max-w-md w-full bg-[#0f172a] border-white/10 p-10 rounded-[2.5rem] shadow-2xl space-y-8">
-                                <div className="w-24 h-24 bg-emerald-500/10 rounded-[2rem] flex items-center justify-center mx-auto border border-emerald-500/20 shadow-inner">
+                            <Card className="max-w-md w-full bg-[#16192B]/90 border-white/10 p-10 rounded-[2rem] shadow-[0_30px_60px_-15px_rgba(0,0,0,0.8)] space-y-8 backdrop-blur-2xl">
+                                <div className="w-24 h-24 bg-emerald-500/10 rounded-2xl flex items-center justify-center mx-auto border border-emerald-500/20 shadow-inner">
                                     <Sparkles size={48} className="text-emerald-400" />
                                 </div>
                                 <div className="space-y-3">
@@ -717,7 +827,7 @@ const InterviewRoom = () => {
                                     </p>
                                 </div>
                                 <Button
-                                    onClick={() => navigate('/candidate/dashboard')}
+                                    onClick={() => navigate('/candidate-dashboard')}
                                     className="w-full h-16 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl text-lg font-bold shadow-[0_10px_30px_rgba(16,185,129,0.3)] transition-all hover:scale-[1.02] active:scale-95 flex items-center justify-center gap-3"
                                 >
                                     Return to Dashboard
@@ -732,24 +842,24 @@ const InterviewRoom = () => {
                 <div className="flex-1 p-8 flex flex-col gap-8 overflow-hidden relative">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-8 flex-1 min-h-0">
                         {/* AI Bot Tile */}
-                        <div className="relative rounded-[2.5rem] bg-[#0f172a] border border-white/5 overflow-hidden shadow-2xl flex flex-col items-center justify-center p-8 group">
-                            <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/10 via-transparent to-purple-500/10 opacity-50"></div>
+                        <div className="relative rounded-[2.5rem] bg-[#16192B]/40 border border-white/10 overflow-hidden shadow-2xl flex flex-col items-center justify-center p-8 group backdrop-blur-md">
+                            <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/5 via-transparent to-purple-500/5 opacity-50"></div>
 
-                            <div className="relative z-10 flex flex-col items-center gap-12">
-                                {/* Bot Avatar Container - Allow overflow for rings */}
-                                <div className="relative w-48 h-48 md:w-64 md:h-64 flex items-center justify-center translate-y-[-10%]">
+                            <div className="relative z-10 flex flex-col items-center gap-6">
+                                {/* Bot Avatar Container */}
+                                <div className="relative w-48 h-48 md:w-56 md:h-56 flex items-center justify-center">
                                     <AnimatePresence>
-                                        {isBotSpeaking && (
+                                        {(isBotSpeaking || isCandidateSpeaking) && (
                                             <>
                                                 <motion.div
                                                     initial={{ scale: 1, opacity: 0.5 }}
-                                                    animate={{ scale: 1.8, opacity: 0 }}
+                                                    animate={{ scale: 1.6, opacity: 0 }}
                                                     transition={{ duration: 1.5, repeat: Infinity, ease: "easeOut" }}
                                                     className="absolute inset-0 rounded-full border-2 border-indigo-500/30"
                                                 />
                                                 <motion.div
                                                     initial={{ scale: 1, opacity: 0.5 }}
-                                                    animate={{ scale: 2.5, opacity: 0 }}
+                                                    animate={{ scale: 2.2, opacity: 0 }}
                                                     transition={{ duration: 1.5, repeat: Infinity, ease: "easeOut", delay: 0.5 }}
                                                     className="absolute inset-0 rounded-full border-2 border-indigo-500/20"
                                                 />
@@ -757,25 +867,44 @@ const InterviewRoom = () => {
                                         )}
                                     </AnimatePresence>
 
-                                    <div className={`w-36 h-36 md:w-48 md:h-48 rounded-[3.5rem] bg-gradient-to-br from-[#1e293b] to-[#010617] flex items-center justify-center border border-white/10 shadow-[0_0_50px_rgba(0,0,0,0.5)] relative z-20 transition-all duration-500 ${isBotSpeaking ? 'scale-110 rotate-3' : 'scale-100'}`}>
-                                        <div className="bg-indigo-600 w-20 h-20 md:w-24 md:h-24 rounded-3xl flex items-center justify-center shadow-2xl shadow-indigo-600/30">
-                                            <Bot size={56} className="text-white" />
+                                    <div className={`w-36 h-36 md:w-44 md:h-44 rounded-full bg-gradient-to-br from-[#1e293b] to-[#0B0D17] flex items-center justify-center border border-white/10 shadow-[0_0_50px_rgba(99,102,241,0.25)] relative z-20 transition-all duration-500 ${isBotSpeaking ? 'scale-105 shadow-[0_0_60px_rgba(99,102,241,0.4)]' : 'scale-100'}`}>
+                                        <div className="bg-indigo-600/90 w-20 h-20 md:w-24 md:h-24 rounded-full flex items-center justify-center shadow-2xl shadow-indigo-600/30 border border-indigo-400/20">
+                                            <Bot size={52} className="text-white" />
                                         </div>
 
                                         {isBotSpeaking && (
                                             <motion.div
-                                                animate={{ scale: [1, 1.2, 1] }}
+                                                animate={{ scale: [1, 1.15, 1] }}
                                                 transition={{ duration: 0.5, repeat: Infinity }}
-                                                className="absolute -top-3 -right-3 bg-red-500 p-3 rounded-2xl shadow-lg border border-white/20"
+                                                className="absolute -top-1 -right-1 bg-red-500 p-2.5 rounded-full shadow-lg border border-white/20"
                                             >
-                                                <Volume2 size={24} className="text-white" />
+                                                <Volume2 size={20} className="text-white" />
                                             </motion.div>
                                         )}
                                     </div>
+                                </div>
 
-                                    <div className="absolute -bottom-6 left-1/2 -translate-x-1/2 px-6 py-2 rounded-2xl bg-indigo-600 text-[11px] font-black tracking-[0.2em] uppercase shadow-xl shadow-indigo-600/20 z-30 border border-white/10">
-                                        AI AGENT
-                                    </div>
+                                {/* Waveform visualizer */}
+                                <div className="flex items-end justify-center gap-1.5 h-12 w-48 mt-4">
+                                    {[...Array(9)].map((_, i) => (
+                                        <motion.div
+                                            key={i}
+                                            className="w-1.5 rounded-full bg-indigo-500"
+                                            animate={isBotSpeaking ? {
+                                                height: [12, [24, 48, 36, 16][i % 4], 12]
+                                            } : isCandidateSpeaking ? {
+                                                height: [12, [18, 30, 24, 14][i % 4], 12]
+                                            } : {
+                                                height: [12, 12, 12]
+                                            }}
+                                            transition={{
+                                                duration: 0.8,
+                                                repeat: Infinity,
+                                                delay: i * 0.1,
+                                                ease: "easeInOut"
+                                            }}
+                                        />
+                                    ))}
                                 </div>
                             </div>
 
@@ -787,14 +916,39 @@ const InterviewRoom = () => {
                         </div>
 
                         {/* Candidate Video Tile */}
-                        <div className="relative rounded-[2.5rem] bg-[#0f172a] border border-white/5 overflow-hidden shadow-2xl group">
+                        <div className="relative rounded-[2.5rem] bg-[#16192B]/40 border border-white/10 overflow-hidden shadow-2xl group backdrop-blur-md">
                             {!isCamOn && (
-                                <div className="absolute inset-0 flex flex-col items-center justify-center bg-[#070b14] z-10 p-12 text-center">
-                                    <div className="w-24 h-24 rounded-full bg-slate-800/50 flex items-center justify-center mb-6 border border-white/5 shadow-inner">
-                                        <User size={48} className="text-slate-600" />
+                                <div className="absolute inset-0 flex flex-col items-center justify-center bg-[#16192B]/85 z-10 p-12 text-center border border-white/5 rounded-[2.5rem] backdrop-blur-xl">
+                                    <div className="w-24 h-24 rounded-full bg-slate-800/40 flex items-center justify-center mb-6 border border-white/10 shadow-[0_0_20px_rgba(255,255,255,0.05)]">
+                                        <User size={48} className="text-slate-500" />
                                     </div>
-                                    <p className="text-slate-400 text-lg font-bold tracking-tight">Camera Disabled</p>
-                                    <p className="text-slate-600 text-sm mt-2 font-medium">Please enable your camera for the interview</p>
+                                    <p className="text-white text-lg font-bold tracking-tight">Camera Disabled</p>
+                                    <p className="text-slate-400 text-sm mt-2 font-medium">Please enable your camera for the interview.</p>
+                                </div>
+                            )}
+                            {isCamOn && isModelLoading && (
+                                <div className="absolute top-8 left-8 right-8 z-20 flex items-center justify-center p-3.5 rounded-2xl bg-indigo-500/80 text-white text-xs font-bold border border-indigo-400 shadow-[0_0_30px_rgba(99,102,241,0.3)] backdrop-blur-md">
+                                    <Loader2 size={14} className="animate-spin mr-2" /> Loading AI Proctoring Guardian...
+                                </div>
+                            )}
+                            {isCamOn && !isModelLoading && faceStatus === 'missing' && (
+                                <div className="absolute top-8 left-8 right-8 z-20 flex items-center justify-center p-3.5 rounded-2xl bg-red-500/90 text-white text-xs font-bold border border-red-400 shadow-[0_0_30px_rgba(239,68,68,0.3)] backdrop-blur-md">
+                                    ⚠️ No face detected — Please look at the camera
+                                </div>
+                            )}
+                            {isCamOn && !isModelLoading && faceStatus === 'multiple' && (
+                                <div className="absolute top-8 left-8 right-8 z-20 flex items-center justify-center p-3.5 rounded-2xl bg-yellow-500/95 text-black text-xs font-bold border border-yellow-400 shadow-[0_0_30px_rgba(234,179,8,0.2)] backdrop-blur-md">
+                                    ⚠️ Multiple faces detected — Please ensure you are alone
+                                </div>
+                            )}
+                            {isCamOn && !isModelLoading && (faceStatus === 'looking_left' || faceStatus === 'looking_right') && (
+                                <div className="absolute top-8 left-8 right-8 z-20 flex items-center justify-center p-3.5 rounded-2xl bg-orange-500/90 text-white text-xs font-bold border border-orange-400 shadow-[0_0_30px_rgba(249,115,22,0.3)] backdrop-blur-md">
+                                    ⚠️ Looking away — Please focus on the screen
+                                </div>
+                            )}
+                            {isCamOn && !isModelLoading && faceStatus === 'eyes_closed' && (
+                                <div className="absolute top-8 left-8 right-8 z-20 flex items-center justify-center p-3.5 rounded-2xl bg-purple-500/90 text-white text-xs font-bold border border-purple-400 shadow-[0_0_30px_rgba(168,85,247,0.3)] backdrop-blur-md">
+                                    ⚠️ Eyes closed detected
                                 </div>
                             )}
                             <video
@@ -826,54 +980,73 @@ const InterviewRoom = () => {
 
                     {/* Controls */}
                     <div className="h-28 shrink-0 flex items-center justify-center px-4 relative z-40">
-                        <div className="flex items-center gap-6 bg-[#0f172a]/95 border border-white/10 rounded-[2.5rem] p-4 shadow-[0_30px_60px_-15px_rgba(0,0,0,0.6)] backdrop-blur-2xl">
-                            <div className="flex items-center gap-3 border-r border-white/10 pr-6 mr-2">
-                                <Button size="icon" variant="ghost" className="h-14 w-14 rounded-2xl text-slate-400 hover:bg-white/5 hover:text-white transition-all duration-300 group">
-                                    <Settings size={24} className="group-hover:rotate-45 transition-transform" />
+                        <div className="flex items-center gap-6 bg-[#16192B]/95 border border-white/10 rounded-[2rem] p-4 shadow-[0_30px_60px_-15px_rgba(0,0,0,0.8)] backdrop-blur-2xl">
+                            {/* Settings / Share Section */}
+                            <div className="flex items-center gap-3 border-r border-white/10 pr-6">
+                                <Button 
+                                    size="icon" 
+                                    variant="outline" 
+                                    className="h-12 w-12 rounded-xl border-white/10 bg-transparent text-slate-400 hover:text-white hover:bg-white/5 transition-all duration-300 group"
+                                >
+                                    <Settings size={20} className="group-hover:rotate-45 transition-transform" />
                                 </Button>
-                                <Button size="icon" variant="ghost" className="h-14 w-14 rounded-2xl text-slate-400 hover:bg-white/5 hover:text-white transition-all duration-300 group">
-                                    <MonitorUp size={24} className="group-hover:-translate-y-1 transition-transform" />
+                                <Button 
+                                    size="icon" 
+                                    variant="outline" 
+                                    className="h-12 w-12 rounded-xl border-white/10 bg-transparent text-slate-400 hover:text-white hover:bg-white/5 transition-all duration-300 group"
+                                >
+                                    <MonitorUp size={20} className="group-hover:-translate-y-0.5 transition-transform" />
                                 </Button>
                             </div>
 
-                            <div className="flex items-center gap-5">
+                            {/* Call Toggle Controls */}
+                            <div className="flex items-center gap-4">
                                 <Button
                                     size="icon"
                                     onClick={() => setIsMicOn(!isMicOn)}
-                                    className={`h-16 w-16 rounded-[1.5rem] transition-all duration-500 shadow-xl ${isMicOn ? 'bg-slate-800 text-white border border-white/10 hover:bg-slate-700' : 'bg-red-500 text-white hover:bg-red-600 shadow-red-500/20'}`}
+                                    className={`h-14 w-14 rounded-xl transition-all duration-300 shadow-lg ${
+                                        isMicOn 
+                                            ? 'border border-white/10 bg-transparent hover:bg-white/5 text-slate-300' 
+                                            : 'bg-red-500 hover:bg-red-600 text-white shadow-red-500/20'
+                                    }`}
                                 >
-                                    {isMicOn ? <Mic size={28} /> : <MicOff size={28} />}
+                                    {isMicOn ? <Mic size={22} /> : <MicOff size={22} />}
                                 </Button>
                                 <Button
                                     size="icon"
                                     onClick={() => setIsCamOn(!isCamOn)}
-                                    className={`h-16 w-16 rounded-[1.5rem] transition-all duration-500 shadow-xl ${isCamOn ? 'bg-slate-800 text-white border border-white/10 hover:bg-slate-700' : 'bg-red-500 text-white hover:bg-red-600 shadow-red-500/20'}`}
+                                    className={`h-14 w-14 rounded-xl transition-all duration-300 shadow-lg ${
+                                        isCamOn 
+                                            ? 'border border-white/10 bg-transparent hover:bg-white/5 text-slate-300' 
+                                            : 'bg-red-500 hover:bg-red-600 text-white shadow-red-500/20'
+                                    }`}
                                 >
-                                    {isCamOn ? <Video size={28} /> : <VideoOff size={28} />}
+                                    {isCamOn ? <Video size={22} /> : <VideoOff size={22} />}
                                 </Button>
                                 <Button
                                     size="icon"
                                     onClick={handleEndCall}
-                                    className="h-16 w-16 rounded-[1.5rem] bg-red-500 text-white hover:bg-red-600 shadow-2xl shadow-red-500/40 transition-all hover:scale-110 active:scale-95 flex items-center justify-center p-0"
+                                    className="h-14 w-14 rounded-xl bg-red-500 text-white hover:bg-red-600 shadow-xl shadow-red-500/20 transition-all hover:scale-105 active:scale-95 flex items-center justify-center p-0"
                                 >
-                                    <PhoneOff size={28} fill="currentColor" />
+                                    <PhoneOff size={22} fill="currentColor" />
                                 </Button>
                             </div>
 
-                            <div className="flex items-center gap-5 border-l border-white/10 pl-6 ml-2">
-                                {hasStarted && status === 'active' && (
+                            {/* Action Controls */}
+                            <div className="flex items-center gap-4 border-l border-white/10 pl-6">
+                                {hasStarted && status !== 'completed' && (
                                     <Button
                                         onClick={handleManualNext}
                                         disabled={isBotSpeaking || isCandidateSpeaking}
-                                        className="h-14 px-6 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg shadow-indigo-600/20 font-bold transition-all disabled:opacity-50 flex items-center gap-2"
+                                        className="h-12 px-6 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white shadow-[0_0_20px_rgba(99,102,241,0.4)] font-bold transition-all disabled:opacity-50 flex items-center gap-2 border border-indigo-400/30 text-xs tracking-wider"
                                     >
                                         Next Question
-                                        <ChevronRight size={18} />
+                                        <ChevronRight size={16} />
                                     </Button>
                                 )}
-                                <div className="hidden lg:flex items-center gap-3 px-5 py-3 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 shadow-inner">
-                                    <Shield size={20} className="text-indigo-400" />
-                                    <span className="text-[11px] font-black text-indigo-400 uppercase tracking-[0.15em] whitespace-nowrap">Secured Line</span>
+                                <div className="flex items-center gap-2.5 px-4 py-2.5 rounded-xl bg-indigo-500/10 border border-indigo-500/20 shadow-inner">
+                                    <Shield size={16} className="text-indigo-400" />
+                                    <span className="text-[10px] font-black text-indigo-400 uppercase tracking-widest whitespace-nowrap">SECURED LINE</span>
                                 </div>
                             </div>
                         </div>
@@ -881,8 +1054,8 @@ const InterviewRoom = () => {
                 </div>
 
                 {/* Sidebar: Transcription */}
-                <aside className="w-[450px] border-l border-white/5 bg-[#070b14] flex flex-col hidden xl:flex shrink-0">
-                    <div className="p-8 border-b border-white/5 bg-[#070b14]/50 backdrop-blur-xl sticky top-0 z-10">
+                <aside className="w-[450px] border-l border-white/5 bg-[#0B0D17] flex flex-col hidden xl:flex shrink-0">
+                    <div className="p-8 border-b border-white/5 bg-[#0B0D17]/50 backdrop-blur-xl sticky top-0 z-10">
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-4">
                                 <div className="w-12 h-12 rounded-2xl bg-indigo-600 flex items-center justify-center shadow-xl shadow-indigo-600/30">
@@ -900,7 +1073,7 @@ const InterviewRoom = () => {
                         </div>
                     </div>
 
-                    <div className="flex-1 overflow-y-auto p-8 space-y-8 scrollbar-hide bg-[#070b14]">
+                    <div className="flex-1 overflow-y-auto p-8 space-y-8 scrollbar-hide bg-[#0B0D17]">
                         <motion.div
                             initial={{ opacity: 0, y: -10 }}
                             animate={{ opacity: 1, y: 0 }}
@@ -938,7 +1111,7 @@ const InterviewRoom = () => {
                         <div ref={chatEndRef} />
                     </div>
 
-                    <div className="p-8 border-t border-white/5 bg-[#020617] space-y-6">
+                    <div className="p-8 border-t border-white/5 bg-[#0B0D17] space-y-6">
                         <div className="flex items-center justify-center gap-3 text-[10px] text-slate-600 font-black uppercase tracking-[0.2em] pt-2">
                             <Shield size={12} className="text-emerald-500" />
                             SECURE PRIVATE ROOM
