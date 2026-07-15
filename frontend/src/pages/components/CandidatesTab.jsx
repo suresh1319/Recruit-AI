@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useUser } from "@clerk/clerk-react";
+import { useUser } from "@/hooks/useUser";
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Users, Upload, Search, Filter, Loader2, Bot, Mail, CheckCircle2, X, Grid3x3, List, Trash2, ChevronLeft, ChevronRight, Eye } from 'lucide-react';
@@ -62,7 +62,7 @@ export default function CandidatesTab() {
         };
 
         fetchData();
-    }, [user]);
+    }, [user?.id]);
 
     const StatusBadge = ({ status, autoSelected }) => {
         let colors = 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400';
@@ -317,14 +317,6 @@ export default function CandidatesTab() {
                                  <div className="flex items-center justify-between pt-4 border-t border-slate-100 dark:border-slate-800">
                                     <span className="text-xs text-slate-600 dark:text-slate-500 font-medium">Added {candidate.appliedOn}</span>
                                     <div className="flex gap-2">
-                                        <Button
-                                            size="sm"
-                                            variant="ghost"
-                                            className="h-8 w-8 p-0 text-slate-400 hover:text-red-600 hover:bg-red-50"
-                                            onClick={() => setCandidates(candidates.filter(c => c.id !== candidate.id))}
-                                        >
-                                            <Trash2 size={16} />
-                                        </Button>
                                          <Button
                                             size="sm"
                                             variant="outline"
@@ -350,7 +342,7 @@ export default function CandidatesTab() {
                              <thead>
                                 <tr className="bg-slate-50 dark:bg-slate-950 border-b border-slate-200 dark:border-slate-800 text-xs uppercase font-bold text-slate-500 dark:text-slate-400 tracking-wider">
                                     <th className="p-4 pl-6">Candidate</th>
-                                    <th className="p-4">Applied On</th>
+                                    <th className="p-4">Added On</th>
                                     <th className="p-4 pr-6 text-right">Actions</th>
                                 </tr>
                             </thead>
@@ -385,7 +377,7 @@ export default function CandidatesTab() {
                                                 </div>
                                             </td>
                                             <td className="p-4">
-                                                <p className="text-xs text-slate-500 dark:text-slate-400">Applied {candidate.appliedOn}</p>
+                                                <p className="text-xs text-slate-500 dark:text-slate-400">Added {candidate.appliedOn}</p>
                                             </td>
                                             <td className="p-4 pr-6 text-right">
                                                 <div className="flex justify-end gap-2">
@@ -396,14 +388,6 @@ export default function CandidatesTab() {
                                                         onClick={() => navigate(`/candidate/${candidate.id}`)}
                                                     >
                                                         <Eye size={14} /> View
-                                                    </Button>
-                                                    <Button
-                                                        size="sm"
-                                                        variant="outline"
-                                                        className="border-red-200 text-red-600 hover:bg-red-50 rounded-lg h-8"
-                                                        onClick={() => setCandidates(candidates.filter(c => c.id !== candidate.id))}
-                                                    >
-                                                        <Trash2 size={14} />
                                                     </Button>
                                                 </div>
                                             </td>

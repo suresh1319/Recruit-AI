@@ -130,18 +130,25 @@ export const getAllInterviews = async (req, res) => {
         }).select('_id interviewLink applications');
 
         const interviewToCandidateMap = {};
+        const interviewToJobMap = {};
         candidatesList.forEach(c => {
             if (c.interviewLink) {
                 const parts = c.interviewLink.split('/');
                 const id = parts[parts.length - 1];
-                if (id) interviewToCandidateMap[id] = c._id.toString();
+                if (id) {
+                    interviewToCandidateMap[id] = c._id.toString();
+                    if (c.jobId) interviewToJobMap[id] = c.jobId.toString();
+                }
             }
             if (c.applications) {
                 c.applications.forEach(app => {
                     if (app.interviewLink) {
                         const parts = app.interviewLink.split('/');
                         const id = parts[parts.length - 1];
-                        if (id) interviewToCandidateMap[id] = c._id.toString();
+                        if (id) {
+                            interviewToCandidateMap[id] = c._id.toString();
+                            if (app.jobId) interviewToJobMap[id] = app.jobId.toString();
+                        }
                     }
                 });
             }
@@ -168,6 +175,7 @@ export const getAllInterviews = async (req, res) => {
                 id: i._id,
                 interviewId: i.interviewId || i._id.toString(),
                 candidateId: interviewToCandidateMap[i.interviewId] || null,
+                jobId: interviewToJobMap[i.interviewId] || null,
                 candidate: i.candidateName || 'Unknown',
                 role: i.jobTitle,
                 status: i.status === 'completed' ? 'Completed' : i.status === 'ongoing' ? 'Ongoing' : 'Scheduled',

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useUser } from '@clerk/clerk-react';
+import { useUser } from '@/hooks/useUser';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { BriefcaseBusiness, Plus, MoreVertical, Loader2, MapPin, Building2, Clock, Bot, Mail, X, Users, DollarSign, CheckCircle2, ExternalLink, UserCircle } from 'lucide-react';
@@ -69,7 +69,7 @@ export default function JobsTab() {
             const response = await fetch(`${API_BASE_URL}/api/jobs/generate`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ prompt: jobPrompt })
+                body: JSON.stringify({ prompt: jobPrompt, clerkId: user.id })
             });
 
             const data = await response.json();
@@ -171,9 +171,14 @@ export default function JobsTab() {
                     benefits: '',
                     status: 'draft'
                 });
+                toast.success('Job created successfully!');
+            } else {
+                const errData = await response.json();
+                toast.error(errData.error || 'Failed to create job.');
             }
         } catch (error) {
             console.error('Create job error:', error);
+            toast.error('Failed to create job.');
         }
     };
 
@@ -182,13 +187,18 @@ export default function JobsTab() {
             const response = await fetch(`${API_BASE_URL}/api/jobs/${jobId}`, {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ status: newStatus })
+                body: JSON.stringify({ status: newStatus, clerkId: user.id })
             });
             if (response.ok) {
+                toast.success(`Job status updated to ${newStatus.toUpperCase()}`);
                 fetchJobs();
+            } else {
+                const errData = await response.json();
+                toast.error(errData.error || 'Failed to update job status.');
             }
         } catch (error) {
             console.error('Status update error:', error);
+            toast.error('Failed to update job status.');
         }
     };
 
@@ -384,65 +394,68 @@ export default function JobsTab() {
                 <div className="h-64 flex items-center justify-center border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-2xl">
                     <Loader2 className="h-8 w-8 animate-spin text-slate-300" />
                 </div>
-            ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+            ) : (                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
                     {jobs.map((job) => (
-                        <Card key={job._id} className="p-6 border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-md transition-all flex flex-col justify-between group cursor-pointer relative overflow-hidden bg-white dark:bg-slate-900/50">
+                        <Card key={job._id} className="p-7 border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-md transition-all flex flex-col justify-between group cursor-pointer relative overflow-hidden bg-white dark:bg-slate-900/50 hover:border-indigo-150 dark:hover:border-indigo-900/40">
                             {job.status === 'closed' && (
                                 <div className="absolute inset-0 bg-slate-50/50 dark:bg-slate-950/50 z-10 pointer-events-none" />
                             )}
                             <div>
-                                <div className="flex justify-between items-start mb-4">
+                                <div className="flex justify-between items-start mb-5">
                                     <div className="p-2.5 bg-indigo-50 dark:bg-indigo-950/30 text-indigo-600 dark:text-indigo-400 rounded-xl group-hover:bg-indigo-600 group-hover:dark:bg-indigo-500 group-hover:text-white transition-colors">
                                         <BriefcaseBusiness size={20} />
                                     </div>
                                     <select
                                         value={job.status}
                                         onChange={(e) => handleStatusChange(job._id, e.target.value)}
-                                        className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border-0 cursor-pointer ${job.status === 'active' ? 'bg-emerald-100 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400' :
-                                            job.status === 'draft' ? 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400' :
-                                                'bg-red-100 dark:bg-red-950/30 text-red-700 dark:text-red-400'
-                                            }`}
+                                        className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border-0 cursor-pointer focus:outline-none transition-colors ${
+                                            job.status === 'active' ? 'bg-emerald-100 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-450' :
+                                            job.status === 'draft' ? 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-450' :
+                                            'bg-red-100 dark:bg-red-950/30 text-red-700 dark:text-red-450'
+                                        }`}
                                     >
-                                        <option value="draft">Draft</option>
-                                        <option value="active">Active</option>
-                                        <option value="expired">Expired</option>
+                                        <option value="draft" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100">Draft</option>
+                                        <option value="active" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100">Active</option>
+                                        <option value="expired" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100">Expired</option>
                                     </select>
                                 </div>
-                                <h3 className="font-bold text-lg text-slate-900 dark:text-slate-100 mb-1">{job.title}</h3>
-                                <p className="text-sm text-slate-600 dark:text-slate-400 mb-4 line-clamp-2">{job.description}</p>
+                                <h3 className="font-bold text-lg text-slate-900 dark:text-slate-100 mb-1.5">{job.title}</h3>
+                                <p className="text-sm text-slate-650 dark:text-slate-400 mb-5 line-clamp-1">{job.description}</p>
 
-                                <div className="space-y-2 mb-4">
+
+                                <div className="space-y-2.5 mb-5">
                                     {job.location && (
-                                        <div className="flex items-center gap-2 text-xs text-slate-500">
-                                            <MapPin size={14} className="text-slate-400" />
+                                        <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-450">
+                                            <MapPin size={14} className="text-slate-400 dark:text-slate-500" />
                                             {job.location}
                                         </div>
                                     )}
                                     {job.department && (
-                                        <div className="flex items-center gap-2 text-xs text-slate-500">
-                                            <Building2 size={14} className="text-slate-400" />
+                                        <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-450">
+                                            <Building2 size={14} className="text-slate-400 dark:text-slate-500" />
                                             {job.department}
                                         </div>
                                     )}
                                     {job.salaryRange?.min && job.salaryRange?.max && (
-                                        <div className="flex items-center gap-2 text-xs text-slate-500">
-                                            <DollarSign size={14} className="text-slate-400" />
+                                        <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-450">
+                                            <DollarSign size={14} className="text-slate-400 dark:text-slate-500" />
                                             {job.salaryRange.currency === 'INR' ? '₹' : '$'}{job.salaryRange.min.toLocaleString()} - {job.salaryRange.currency === 'INR' ? '₹' : '$'}{job.salaryRange.max.toLocaleString()} / {job.salaryRange.period || 'year'}
                                         </div>
                                     )}
-                                    <div className="flex items-center gap-2 text-xs text-slate-500">
-                                        <Users size={14} className="text-slate-400" />
-                                        {job.candidatesApplied?.length || 0} Applied / {job.candidatesMatched?.length || 0} Matched
+                                    <div className="flex items-center gap-2 text-xs bg-indigo-50/50 dark:bg-indigo-950/20 text-indigo-700 dark:text-indigo-400 px-3 py-2 rounded-lg border border-indigo-100/50 dark:border-indigo-900/30 w-fit">
+                                        <Users size={14} className="text-indigo-500" />
+                                        <span className="font-semibold">{job.candidatesApplied?.length || 0} Applied</span>
+                                        <span className="text-indigo-200 dark:text-indigo-800">|</span>
+                                        <span className="font-semibold">{job.candidatesMatched?.length || 0} Matched</span>
                                     </div>
                                 </div>
                             </div>
 
-                            <div className="pt-4 border-t border-slate-100 dark:border-slate-800 space-y-2 z-20">
-                                <div className="grid grid-cols-2 gap-2">
+                            <div className="pt-4 border-t border-slate-100 dark:border-slate-800 space-y-2.5 z-20">
+                                <div className="grid grid-cols-2 gap-2.5">
                                     <Button
                                         size="sm"
-                                        className="bg-indigo-600 hover:bg-indigo-700 gap-2 min-w-[100px]"
+                                        className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold gap-2 min-w-[100px]"
                                         onClick={(e) => {
                                             e.stopPropagation();
                                             handleMatchCandidates(job._id);
@@ -459,7 +472,7 @@ export default function JobsTab() {
                                     <Button
                                         size="sm"
                                         variant="outline"
-                                        className="border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 gap-2 transition-colors"
+                                        className="border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 gap-2 transition-colors font-semibold"
                                         onClick={(e) => {
                                             e.stopPropagation();
                                             navigate(`/job/${job._id}`);
@@ -470,14 +483,13 @@ export default function JobsTab() {
                                 </div>
                                 <Button
                                     size="sm"
-                                    variant="outline"
-                                    className="w-full border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 gap-2 transition-colors"
+                                    className="w-full bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 border-0 shadow-none font-semibold transition-all gap-2"
                                     onClick={(e) => {
                                         e.stopPropagation();
                                         setViewingJobIdForCandidates(job._id);
                                     }}
                                 >
-                                    <Users size={14} /> View Candidates ({(job.candidatesApplied?.length || 0) + (job.candidatesMatched?.filter(c => c.matchScore > 75).length || 0)})
+                                    <Users size={14} className="text-slate-500" /> View Candidates ({(job.candidatesApplied?.length || 0) + (job.candidatesMatched?.filter(c => c.matchScore > 75).length || 0)})
                                 </Button>
                             </div>
                         </Card>

@@ -9,6 +9,8 @@ import CandidateDetails from './pages/CandidateDetails';
 import CandidateDashboard from './pages/CandidateDashboard';
 import JobDetails from './pages/JobDetails';
 import JobCandidatesDashboard from './pages/JobCandidatesDashboard';
+import CompanyVerificationPage from './pages/CompanyVerificationPage';
+import AdminVerificationPage from './pages/AdminVerificationPage';
 import SyncUser from './components/SyncUser';
 import { Toaster } from 'sonner';
 
@@ -30,6 +32,9 @@ function App() {
         <Route
           path="/dashboard"
           element={<Dashboard />} />
+
+        <Route path="/verify-company" element={<CompanyVerificationPage />} />
+        <Route path="/admin/verify" element={<AdminVerificationPage />} />
 
         {/* Candidate Portal Route */}
         <Route

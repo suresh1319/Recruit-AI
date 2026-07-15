@@ -3,10 +3,11 @@ import { useSearchParams, useNavigate } from 'react-router-dom';
 import {
     LayoutDashboard, Briefcase, Users, CalendarClock, Settings,
     Zap, CheckCircle2, Calendar, Clock, ArrowUpRight, Bell, Loader2,
-    ChevronLeft, ChevronRight, LogOut, User as UserIcon, Sun, Moon, Sparkles
+    ChevronLeft, ChevronRight, LogOut, User as UserIcon, Sun, Moon, Sparkles,
+    ChevronRight as BreadcrumbSep
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { useUser, useClerk } from "@clerk/clerk-react";
+import { useUser, useClerk } from "@/hooks/useUser";
 import { useTheme } from '../components/theme-provider';
 import { motion, AnimatePresence } from 'framer-motion';
 import JobsTab from './components/JobsTab';
@@ -174,9 +175,9 @@ export default function Dashboard() {
                                         setIsMobileSidebarOpen(false);
                                     }}
                                     className={`flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium transition-all group ${activeTab === item.id
-                                        ? 'bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100'
-                                        : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-100'
-                                        } ${isSidebarCollapsed ? 'justify-center px-0' : ''}`}
+                                        ? 'bg-indigo-50 dark:bg-indigo-950/20 text-indigo-700 dark:text-indigo-400 border-l-[3px] border-indigo-600 dark:border-indigo-500'
+                                        : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-100 border-l-[3px] border-transparent'
+                                        } ${isSidebarCollapsed ? 'justify-center px-0 border-l-0' : ''}`}
                                     title={isSidebarCollapsed ? item.label : ''}
                                 >
                                     <div className="shrink-0">{item.icon}</div>
@@ -193,6 +194,10 @@ export default function Dashboard() {
                             ))}
                         </nav>
                     </div>
+                </div>
+                <div>
+                    {/* Separator */}
+                    <div className="mx-4 my-3 border-t border-slate-200 dark:border-slate-800" />
                 </div>
 
                 <div className="p-4 space-y-4">
@@ -226,21 +231,27 @@ export default function Dashboard() {
                                     initial={{ opacity: 0, y: 10, scale: 0.95 }}
                                     animate={{ opacity: 1, y: 0, scale: 1 }}
                                     exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                                    className={`absolute left-0 bottom-full mb-2 w-48 bg-white border border-slate-200 rounded-xl shadow-xl overflow-hidden z-50 ${isSidebarCollapsed ? 'left-auto -right-2 w-40' : ''}`}
+                                    className={`absolute left-0 bottom-full mb-2 w-48 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl overflow-hidden z-50 ${isSidebarCollapsed ? 'left-auto -right-2 w-40' : ''}`}
                                 >
-                                    <div className="p-2 border-b border-slate-50">
+                                    <div className="p-2 border-b border-slate-100 dark:border-slate-800">
                                         <div className="px-3 py-2 text-xs font-bold text-slate-400 uppercase tracking-wider">Account</div>
-                                        <button className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 rounded-lg transition-colors">
+                                        <button 
+                                            onClick={() => { setIsProfileOpen(false); setSearchParams({ tab: 'settings' }); setActiveTab('settings'); }}
+                                            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-655 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg transition-colors text-left"
+                                        >
                                             <UserIcon size={16} /> Profile
                                         </button>
-                                        <button className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 rounded-lg transition-colors">
+                                        <button 
+                                            onClick={() => { setIsProfileOpen(false); setSearchParams({ tab: 'settings' }); setActiveTab('settings'); }}
+                                            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-655 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg transition-colors text-left"
+                                        >
                                             <Settings size={16} /> Preferences
                                         </button>
                                     </div>
                                     <div className="p-2">
                                         <button
                                             onClick={() => signOut()}
-                                            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg transition-colors font-medium"
+                                            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-lg transition-colors font-medium"
                                         >
                                             <LogOut size={16} /> Log out
                                         </button>
@@ -268,13 +279,21 @@ export default function Dashboard() {
 
                 {/* Topbar */}
                 <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 h-16 items-center justify-between px-8 hidden md:flex sticky top-0 z-10 w-full">
-                    <div className="flex items-center gap-3 text-slate-800 dark:text-slate-200 font-semibold text-lg capitalize">
-                        {activeTab === 'home' && <LayoutDashboard className="h-5 w-5 text-slate-500" />}
-                        {activeTab === 'jobs' && <Briefcase className="h-5 w-5 text-slate-500" />}
-                        {activeTab === 'candidates' && <Users className="h-5 w-5 text-slate-500" />}
-                        {activeTab === 'schedules' && <CalendarClock className="h-5 w-5 text-slate-500" />}
-                        {activeTab === 'settings' && <Settings className="h-5 w-5 text-slate-500" />}
-                        {activeTab}
+                    <div className="flex items-center gap-2 text-sm">
+                        <button
+                            onClick={() => { setSearchParams({ tab: 'home' }); setActiveTab('home'); }}
+                            className="text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors font-medium"
+                        >
+                            Dashboard
+                        </button>
+                        {activeTab !== 'home' && (
+                            <>
+                                <BreadcrumbSep className="h-3.5 w-3.5 text-slate-400 dark:text-slate-600" />
+                                <span className="font-semibold text-slate-800 dark:text-slate-200 capitalize">
+                                    {activeTab === 'schedules' ? 'Schedules / Interview' : activeTab}
+                                </span>
+                            </>
+                        )}
                     </div>
                     <div className="flex items-center gap-4">
                         {/* Theme Switcher */}
@@ -311,9 +330,13 @@ export default function Dashboard() {
                                 </span>
                             )}
                         </button>
-                        <div className="h-8 w-8 rounded-full bg-teal-800 flex items-center justify-center text-white text-sm font-medium shadow-sm">
+                        <button
+                            onClick={() => { setSearchParams({ tab: 'settings' }); setActiveTab('settings'); }}
+                            className="h-8 w-8 rounded-full bg-teal-800 flex items-center justify-center text-white text-sm font-medium shadow-sm hover:scale-105 active:scale-95 transition-transform"
+                            title="View Profile"
+                        >
                             {(user?.fullName || user?.firstName || 'U')[0].toUpperCase()}
-                        </div>
+                        </button>
                     </div>
                 </header>
 

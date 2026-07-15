@@ -3,14 +3,14 @@ import { useNavigate } from 'react-router-dom';
 import {
     LayoutDashboard, Briefcase, Users, CalendarClock, Settings,
     ChevronLeft, ChevronRight, LogOut, User as UserIcon, Sun, Moon, Sparkles,
-    Bell, Loader2, Zap
+    Bell, Loader2, Zap, ChevronRight as BreadcrumbSep
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { useUser, useClerk } from "@clerk/clerk-react";
+import { useUser, useClerk } from "@/hooks/useUser";
 import { useTheme } from '../../components/theme-provider';
 import { motion, AnimatePresence } from 'framer-motion';
 
-export default function RecruiterLayout({ children, activeTab = 'jobs' }) {
+export default function RecruiterLayout({ children, activeTab = 'jobs', breadcrumbs = [] }) {
     const { user } = useUser();
     const { signOut } = useClerk();
     const { theme, setTheme } = useTheme();
@@ -82,9 +82,9 @@ export default function RecruiterLayout({ children, activeTab = 'jobs' }) {
                                         setIsMobileSidebarOpen(false);
                                     }}
                                     className={`flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium transition-all group ${activeTab === item.id
-                                        ? 'bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100'
-                                        : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-100'
-                                        } ${isSidebarCollapsed ? 'justify-center px-0' : ''}`}
+                                        ? 'bg-indigo-50 dark:bg-indigo-950/20 text-indigo-700 dark:text-indigo-400 border-l-[3px] border-indigo-600 dark:border-indigo-500'
+                                        : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-100 border-l-[3px] border-transparent'
+                                        } ${isSidebarCollapsed ? 'justify-center px-0 border-l-0' : ''}`}
                                     title={isSidebarCollapsed ? item.label : ''}
                                 >
                                     <div className="shrink-0">{item.icon}</div>
@@ -101,6 +101,11 @@ export default function RecruiterLayout({ children, activeTab = 'jobs' }) {
                             ))}
                         </nav>
                     </div>
+                </div>
+
+                <div>
+                    {/* Separator */}
+                    <div className="mx-4 my-3 border-t border-slate-200 dark:border-slate-800" />
                 </div>
 
                 <div className="p-4 space-y-4">
@@ -138,10 +143,16 @@ export default function RecruiterLayout({ children, activeTab = 'jobs' }) {
                                 >
                                     <div className="p-2 border-b border-slate-50 dark:border-slate-800">
                                         <div className="px-3 py-2 text-xs font-bold text-slate-400 uppercase tracking-wider">Account</div>
-                                        <button className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg transition-colors">
+                                        <button 
+                                            onClick={() => { setIsProfileOpen(false); navigate('/dashboard?tab=settings'); }}
+                                            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-650 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg transition-colors text-left"
+                                        >
                                             <UserIcon size={16} /> Profile
                                         </button>
-                                        <button className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg transition-colors">
+                                        <button 
+                                            onClick={() => { setIsProfileOpen(false); navigate('/dashboard?tab=settings'); }}
+                                            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-650 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg transition-colors text-left"
+                                        >
                                             <Settings size={16} /> Preferences
                                         </button>
                                     </div>
@@ -177,9 +188,37 @@ export default function RecruiterLayout({ children, activeTab = 'jobs' }) {
 
                 {/* Desktop Topbar */}
                 <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 h-16 items-center justify-between px-8 hidden md:flex sticky top-0 z-10 w-full shrink-0">
-                    <div className="flex items-center gap-3 text-slate-800 dark:text-slate-200 font-semibold text-lg capitalize">
-                        <Briefcase className="h-5 w-5 text-slate-500" />
-                        Jobs
+                    <div className="flex items-center gap-2 text-sm">
+                        <button
+                            onClick={() => navigate('/dashboard')}
+                            className="text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors font-medium"
+                        >
+                            Dashboard
+                        </button>
+                        {breadcrumbs.length > 0 ? (
+                            breadcrumbs.map((crumb, i) => (
+                                <span key={i} className="flex items-center gap-2">
+                                    <BreadcrumbSep className="h-3.5 w-3.5 text-slate-400 dark:text-slate-600" />
+                                    {crumb.href ? (
+                                        <button
+                                            onClick={() => navigate(crumb.href)}
+                                            className="text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors font-medium"
+                                        >
+                                            {crumb.label}
+                                        </button>
+                                    ) : (
+                                        <span className="font-semibold text-slate-800 dark:text-slate-200">{crumb.label}</span>
+                                    )}
+                                </span>
+                            ))
+                        ) : (
+                            <>
+                                <BreadcrumbSep className="h-3.5 w-3.5 text-slate-400 dark:text-slate-600" />
+                                <span className="font-semibold text-slate-800 dark:text-slate-200 capitalize">
+                                    {activeTab === 'schedules' ? 'Schedules / Interview' : activeTab}
+                                </span>
+                            </>
+                        )}
                     </div>
                     <div className="flex items-center gap-4">
                         {/* Theme Switcher */}
@@ -203,6 +242,14 @@ export default function RecruiterLayout({ children, activeTab = 'jobs' }) {
                                 </button>
                             ))}
                         </div>
+
+                        <button
+                            onClick={() => navigate('/dashboard?tab=settings')}
+                            className="h-8 w-8 rounded-full bg-indigo-600 hover:bg-indigo-755 hover:scale-105 active:scale-95 flex items-center justify-center text-white text-sm font-semibold shadow-sm transition-all shrink-0 ml-2"
+                            title="View Profile"
+                        >
+                            {(user?.fullName || user?.firstName || 'U')[0].toUpperCase()}
+                        </button>
                     </div>
                 </header>
 

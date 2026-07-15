@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 import Candidate from '../models/Candidate.js';
 import Job from '../models/Job.js';
 import Interview from '../models/Interview.js';
+import User from '../models/User.js';
 import connectDB from '../db/connect.js';
 import { ai, GEMINI_TEXT_MODEL } from '../config/ai.js';
 import { sendEmail } from '../utils/sendEmail.js';
@@ -91,13 +92,15 @@ export const getMyApplications = async (req, res) => {
             }
 
             let deadline = null;
+            let interviewStatus = null;
             if (interviewLink) {
                 const parts = interviewLink.split('/');
                 const interviewId = parts[parts.length - 1];
                 if (interviewId) {
-                    const interview = await Interview.findOne({ interviewId }).select('expiresAt').lean();
+                    const interview = await Interview.findOne({ interviewId }).select('expiresAt status').lean();
                     if (interview) {
                         deadline = interview.expiresAt;
+                        interviewStatus = interview.status;
                     }
                 }
             }
@@ -112,6 +115,7 @@ export const getMyApplications = async (req, res) => {
                 applicationStatus: status,
                 interviewLink,
                 deadline,
+                interviewStatus,
             };
         }));
 
@@ -403,7 +407,19 @@ export const createCandidate = async (req, res) => {
 export const getAllCandidates = async (req, res) => {
     try {
         await connectDB();
-        const candidates = await Candidate.find().sort({ createdAt: -1 }).populate('jobMatchScores.jobId', 'title department name status');
+        
+        // Exclude recruiters and admins
+        const nonCandidates = await User.find({ role: { $in: ['recruiter', 'admin'] } }).select('clerkId');
+        const excludeClerkIds = nonCandidates.map(u => u.clerkId).filter(id => !!id);
+        
+        const candidates = await Candidate.find({
+            $or: [
+                { clerkId: { $nin: excludeClerkIds } },
+                { clerkId: { $exists: false } },
+                { clerkId: null }
+            ]
+        }).sort({ createdAt: -1 }).populate('jobMatchScores.jobId', 'title department name status');
+        
         res.status(200).json(candidates);
     } catch (error) {
         console.error('Fetch candidates error:', error);
@@ -526,6 +542,9 @@ export const updateCandidate = async (req, res) => {
 
         // If status is updated, also update the specific application in candidate.applications
         if (req.body.status && targetJobId) {
+            const oldStatus = candidate.status;
+            const newStatus = req.body.status;
+
             if (!candidate.applications) {
                 candidate.applications = [];
             }
@@ -547,6 +566,39 @@ export const updateCandidate = async (req, res) => {
                 }
                 if (candidate.interviewLink && req.body.status === 'invited') {
                     candidate.applications[appIndex].interviewLink = candidate.interviewLink;
+                }
+            }
+
+            // Send notification email when status is changed manually
+            if (oldStatus !== newStatus) {
+                let jobTitle = 'the position';
+                try {
+                    const job = await Job.findById(targetJobId);
+                    if (job) jobTitle = job.title;
+                } catch (e) {
+                    console.error('Error fetching job title for email:', e.message);
+                }
+
+                let subject = '';
+                let text = '';
+                let html = '';
+
+                if (newStatus === 'rejected') {
+                    subject = `Application Update — ${jobTitle}`;
+                    text = `Hi ${candidate.name || 'there'},\n\nThank you for your interest in the ${jobTitle} position. After careful consideration, we regret to inform you that we will not be moving forward with your application at this time.\n\nWe appreciate the time you took to apply and wish you the best in your job search.\n\nBest regards,\nRecruitAI Team`;
+                    html = `<p>Hi ${candidate.name || 'there'},</p><p>Thank you for your interest in the <strong>${jobTitle}</strong> position. After careful consideration, we regret to inform you that we will not be moving forward with your application at this time.</p><p>We appreciate the time you took to apply and wish you the best in your job search.</p><p>Best regards,<br/>RecruitAI Team</p>`;
+                } else if (newStatus === 'matched' || newStatus === 'shortlisted') {
+                    subject = `Congratulations! Shortlisted — ${jobTitle}`;
+                    text = `Hi ${candidate.name || 'there'},\n\nGreat news! Your profile has been shortlisted for the ${jobTitle} position at RecruitAI.\n\nWe will reach out to you shortly with the next steps regarding your interview process.\n\nBest regards,\nRecruitAI Team`;
+                    html = `<p>Hi ${candidate.name || 'there'},</p><p>Great news! Your profile has been shortlisted for the <strong>${jobTitle}</strong> position at RecruitAI.</p><p>We will reach out to you shortly with the next steps regarding your interview process.</p><p>Best regards,<br/>RecruitAI Team</p>`;
+                } else if (newStatus === 'pending') {
+                    subject = `Application Update — ${jobTitle}`;
+                    text = `Hi ${candidate.name || 'there'},\n\nWe wanted to let you know that your application for the ${jobTitle} position is back under review.\n\nWe will keep you updated as we process applications.\n\nBest regards,\nRecruitAI Team`;
+                    html = `<p>Hi ${candidate.name || 'there'},</p><p>We wanted to let you know that your application for the <strong>${jobTitle}</strong> position is back under review.</p><p>We will keep you updated as we process applications.</p><p>Best regards,<br/>RecruitAI Team</p>`;
+                }
+
+                if (subject) {
+                    sendEmail(candidate.email, subject, text, html).catch(err => console.error('Error sending manual update email:', err.message));
                 }
             }
         }

@@ -77,6 +77,9 @@ export const syncUser = async (req, res) => {
                 },
                 { upsert: true }
             );
+        } else {
+            // Delete Candidate profile if user role changes to recruiter/admin
+            await Candidate.deleteOne({ clerkId: actualId });
         }
 
         res.status(200).json({ message: 'User synced successfully', user });

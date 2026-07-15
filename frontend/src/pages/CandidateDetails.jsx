@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
-import { useUser } from "@clerk/clerk-react";
+import { useUser } from "@/hooks/useUser";
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { 
@@ -77,7 +77,7 @@ export default function CandidateDetails() {
         };
 
         fetchData();
-    }, [id, interviewId, user, isReportOnly]);
+    }, [id, interviewId, user?.id, isReportOnly]);
 
     const handleRegenerate = async (targetInterviewId) => {
         setIsRegenerating(true);
@@ -204,7 +204,7 @@ export default function CandidateDetails() {
                                     <Calendar size={20} className="text-orange-600 dark:text-orange-400" />
                                 </div>
                                 <div>
-                                    <p className="text-xs text-slate-600 dark:text-slate-400 font-semibold">Applied On</p>
+                                    <p className="text-xs text-slate-600 dark:text-slate-400 font-semibold">Added On</p>
                                     <p className="text-sm text-slate-900 dark:text-slate-100 font-medium">{candidate.appliedOn}</p>
                                 </div>
                             </div>
@@ -255,12 +255,7 @@ export default function CandidateDetails() {
                             </div>
                         )}
 
-                        <div className="flex gap-3 pt-6 border-t border-slate-100 dark:border-slate-800">
-                            <Button variant="outline" className="border-red-200 dark:border-red-900/50 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20">
-                                <Trash2 size={16} className="mr-2" /> Delete Candidate
-                            </Button>
-                        </div>
-                    </Card>
+                     </Card>
                 )}
 
                 {isReportOnly && !candidate.interview && (
@@ -271,7 +266,17 @@ export default function CandidateDetails() {
                     </Card>
                 )}
 
-                {candidate.interview && (
+                {candidate.interview && candidate.interview.status !== 'Completed' && (
+                    <Card className="mt-8 p-8 border border-slate-200 dark:border-slate-800 shadow-sm bg-white dark:bg-slate-900 text-center">
+                        <Bot size={48} className="text-slate-400 mx-auto mb-4 animate-pulse" />
+                        <h3 className="text-lg font-bold text-slate-850 dark:text-slate-250">Interview In Progress</h3>
+                        <p className="text-sm text-slate-500 mt-1 max-w-xl mx-auto leading-relaxed">
+                            This candidate's interview is currently in status: <strong className="text-indigo-650 dark:text-indigo-400 font-bold">{candidate.interview.status}</strong>. AI analysis, proctoring metrics, and integrity scores will be generated automatically once the candidate completes the screening.
+                        </p>
+                    </Card>
+                )}
+
+                {candidate.interview && candidate.interview.status === 'Completed' && (
                     <Card className={isReportOnly ? "p-8 border border-slate-200 dark:border-slate-800 shadow-sm bg-white dark:bg-slate-900" : "mt-8 p-8 border border-slate-200 dark:border-slate-800 shadow-sm bg-white dark:bg-slate-900"}>
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b dark:border-slate-800 pb-4 mb-6">
                             <div>

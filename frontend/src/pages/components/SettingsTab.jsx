@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { useUser } from "@clerk/clerk-react";
+import React, { useState, useEffect } from 'react';
+import { useUser } from "@/hooks/useUser";
 import { 
     Settings, User, Building2, Bell, Shield, 
     Mail, Globe, MapPin, Save, Loader2, Moon, Sun, Monitor
@@ -10,19 +10,53 @@ import { Label } from '@/components/ui/label';
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/card';
 import { toast } from 'sonner';
 import { useTheme } from '@/components/theme-provider';
+import { API_BASE_URL } from '@/lib/api';
 
 export default function SettingsTab() {
     const { user } = useUser();
     const { theme, setTheme } = useTheme();
     const [isSaving, setIsSaving] = useState(false);
+    const [isLoading, setIsLoading] = useState(true);
     const [settings, setSettings] = useState({
         companyName: '',
         website: '',
         industry: '',
         location: '',
+        goal: '',
+        description: '',
+        services: '',
         emailNotifications: true,
         marketingEmails: false
     });
+
+    useEffect(() => {
+        const fetchCompanyData = async () => {
+            if (!user?.id) return;
+            try {
+                const res = await fetch(`${API_BASE_URL}/api/companies/my-company?clerkId=${user.id}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data) {
+                        setSettings(prev => ({
+                            ...prev,
+                            companyName: data.companyName || '',
+                            website: data.website || '',
+                            industry: data.industry || '',
+                            location: data.address || '',
+                            goal: data.goal || '',
+                            description: data.description || '',
+                            services: data.services || ''
+                        }));
+                    }
+                }
+            } catch (error) {
+                console.error('Error fetching company details:', error);
+            } finally {
+                setIsLoading(false);
+            }
+        };
+        fetchCompanyData();
+    }, [user?.id]);
 
     const handleInputChange = (e) => {
         const { name, value, type, checked } = e.target;
@@ -35,12 +69,35 @@ export default function SettingsTab() {
     const handleSave = async (e) => {
         e.preventDefault();
         setIsSaving(true);
-        
-        // Mock API call
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        
-        setIsSaving(false);
-        toast.success('Settings updated successfully!');
+        try {
+            const res = await fetch(`${API_BASE_URL}/api/companies/update-profile`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    clerkId: user.id,
+                    companyName: settings.companyName,
+                    website: settings.website,
+                    industry: settings.industry,
+                    address: settings.location,
+                    goal: settings.goal,
+                    description: settings.description,
+                    services: settings.services
+                })
+            });
+            if (res.ok) {
+                toast.success('Settings updated successfully!');
+            } else {
+                const errData = await res.json();
+                toast.error(errData.error || 'Failed to update company profile');
+            }
+        } catch (error) {
+            console.error('Error updating settings:', error);
+            toast.error('Network error while saving settings.');
+        } finally {
+            setIsSaving(false);
+        }
     };
 
     return (
@@ -182,6 +239,39 @@ export default function SettingsTab() {
                                         className="pl-10 dark:bg-slate-900 dark:border-slate-800"
                                     />
                                 </div>
+                            </div>
+                            <div className="space-y-1.5 md:col-span-2 mt-2">
+                                <Label htmlFor="description">About Company / What We Do</Label>
+                                <textarea
+                                    id="description"
+                                    name="description"
+                                    placeholder="Describe what your company does, its core business, and focus area."
+                                    value={settings.description}
+                                    onChange={handleInputChange}
+                                    className="flex w-full rounded-md border border-slate-200 dark:border-slate-800 bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 min-h-[80px] dark:bg-slate-900 dark:text-slate-100"
+                                />
+                            </div>
+                            <div className="space-y-1.5 md:col-span-2 mt-2">
+                                <Label htmlFor="goal">Company Goal & Vision</Label>
+                                <textarea
+                                    id="goal"
+                                    name="goal"
+                                    placeholder="Describe the company's primary target, vision, or goal."
+                                    value={settings.goal}
+                                    onChange={handleInputChange}
+                                    className="flex w-full rounded-md border border-slate-200 dark:border-slate-800 bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 min-h-[80px] dark:bg-slate-900 dark:text-slate-100"
+                                />
+                            </div>
+                            <div className="space-y-1.5 md:col-span-2 mt-2">
+                                <Label htmlFor="services">Services Offered</Label>
+                                <textarea
+                                    id="services"
+                                    name="services"
+                                    placeholder="What services or products does your company offer to clients or other companies?"
+                                    value={settings.services}
+                                    onChange={handleInputChange}
+                                    className="flex w-full rounded-md border border-slate-200 dark:border-slate-800 bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 min-h-[80px] dark:bg-slate-900 dark:text-slate-100"
+                                />
                             </div>
                         </div>
                     </CardContent>

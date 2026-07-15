@@ -15,6 +15,7 @@ import candidateRoutes from './src/routes/candidateRoutes.js';
 import jobRoutes from './src/routes/jobRoutes.js';
 import interviewRoutes from './src/routes/interviewRoutes.js';
 import ttsRoutes from './src/routes/ttsRoutes.js';
+import companyRoutes from './src/routes/companyRoutes.js';
 
 // Backward compatibility imports (must be at top level in ESM)
 import { getDashboardMetrics } from './src/controllers/candidateController.js';
@@ -46,6 +47,7 @@ app.use('/api/candidates', candidateRoutes);
 app.use('/api/jobs', jobRoutes);
 app.use('/api/interviews', interviewRoutes);
 app.use('/api/tts', ttsRoutes);
+app.use('/api/companies', companyRoutes);
 
 // Backward compatibility for legacy paths
 app.get('/api/dashboard/metrics', getDashboardMetrics);

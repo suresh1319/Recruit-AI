@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { useUser, SignOutButton } from '@clerk/clerk-react';
+import { SignOutButton } from '@clerk/clerk-react';
+import { useUser } from '@/hooks/useUser';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '@/components/ui/button';
@@ -14,7 +15,7 @@ import {
     UserCircle, BriefcaseBusiness, Bot, Loader2, Trash2, X,
     Search, Filter, ChevronRight, Building2, Timer, Home, Calendar,
     ExternalLink, MapPinned, Info, ClipboardList, Clock, CheckCheck,
-    XCircle, AlertCircle, Sun, Moon, Sparkles, Menu
+    XCircle, AlertCircle, Sun, Moon, Sparkles, Menu, Bell
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTheme } from '../components/theme-provider';
@@ -398,6 +399,12 @@ export default function CandidateDashboard() {
                             ))}
                         </div>
 
+                        {/* Notification Bell */}
+                        <button className="relative p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors mr-1">
+                            <Bell size={18} />
+                            <span className="absolute top-1.5 right-1.5 h-2 w-2 bg-indigo-600 rounded-full animate-pulse" />
+                        </button>
+
                         <div className="flex items-center gap-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-full px-3 py-1.5">
                             <div className="h-6 w-6 rounded-full bg-indigo-600 flex items-center justify-center text-white text-xs font-bold">
                                 {(user?.fullName || user?.firstName || 'U')[0].toUpperCase()}
@@ -598,11 +605,12 @@ export default function CandidateDashboard() {
                                                                             {job.experienceLevel}
                                                                         </span>
                                                                     )}
+
                                                                 </div>
                                                                 <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100 group-hover:text-indigo-700 dark:group-hover:text-indigo-400 transition-colors leading-snug mb-3">
                                                                     {job.title}
                                                                 </h3>
-
+ 
                                                                 {/* Meta tags */}
                                                                 <div className="flex flex-wrap gap-2 mb-3">
                                                                     {job.location && (
@@ -626,12 +634,13 @@ export default function CandidateDashboard() {
                                                                         </span>
                                                                     )}
                                                                 </div>
-
+ 
                                                                 {job.description && (
                                                                     <p className="text-sm text-slate-500 dark:text-slate-400 line-clamp-2 leading-relaxed mb-4">
                                                                         {job.description}
                                                                     </p>
                                                                 )}
+
                                                             </div>
 
                                                             {/* Right actions */}
@@ -724,7 +733,7 @@ export default function CandidateDashboard() {
                                                     </button>
                                                     {(() => {
                                                         if (!app.interviewLink) return null;
-                                                        if (app.applicationStatus === 'rejected') {
+                                                        if (app.applicationStatus === 'rejected' || app.interviewStatus === 'completed') {
                                                             return (
                                                                 <button disabled className="px-4 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500 text-xs font-bold flex items-center gap-1.5 cursor-not-allowed border border-slate-200 dark:border-slate-800 opacity-60">
                                                                     <Calendar size={12} className="opacity-60" /> Join Interview
@@ -899,7 +908,21 @@ export default function CandidateDashboard() {
                                 <div className="space-y-4">
                                     {/* Resume */}
                                     <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-5">
-                                        <h3 className="font-bold text-slate-900 dark:text-slate-100 mb-3 flex items-center gap-2"><ExternalLink size={15} className="text-indigo-500" /> Resume</h3>
+                                        <div className="flex justify-between items-center mb-3">
+                                            <h3 className="font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                                                <ExternalLink size={15} className="text-indigo-500" /> Resume
+                                            </h3>
+                                            {profile.status && (
+                                                <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-bold border uppercase ${
+                                                    profile.status === 'selected' ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 border-emerald-100 dark:border-emerald-900/30'
+                                                    : profile.status === 'invited' ? 'bg-indigo-50 dark:bg-indigo-950/30 text-indigo-700 dark:text-indigo-300 border-indigo-100 dark:border-indigo-900/30'
+                                                    : profile.status === 'rejected' ? 'bg-red-50 dark:bg-red-950/30 text-red-600 dark:text-red-400 border-red-100 dark:border-red-900/30'
+                                                    : 'bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 border-amber-100 dark:border-amber-900/30'
+                                                }`}>
+                                                    {profile.status}
+                                                </span>
+                                            )}
+                                        </div>
                                         <div className="space-y-2">
                                             <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider block">Resume URL *</label>
                                             <input
@@ -914,27 +937,19 @@ export default function CandidateDashboard() {
                                             </p>
                                         </div>
                                     </div>
-                                    {/* Status card */}
-                                    <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-5">
-                                        <h3 className="font-bold text-slate-900 dark:text-slate-100 mb-3 flex items-center gap-2"><UserCircle size={15} className="text-indigo-500" /> Status</h3>
-                                        {profile.status && (
-                                            <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold border ${profile.status === 'selected' ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 border-emerald-100 dark:border-emerald-900/30'
-                                                    : profile.status === 'invited' ? 'bg-indigo-50 dark:bg-indigo-950/30 text-indigo-700 dark:text-indigo-300 border-indigo-100 dark:border-indigo-900/30'
-                                                        : profile.status === 'rejected' ? 'bg-red-50 dark:bg-red-950/30 text-red-600 dark:text-red-400 border-red-100 dark:border-red-900/30'
-                                                            : 'bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 border-amber-100 dark:border-amber-900/30'
-                                                }`}>
-                                                {profile.status.charAt(0).toUpperCase() + profile.status.slice(1)}
-                                            </span>
-                                        )}
-                                    </div>
 
                                     {/* Interview card */}
                                     {profile.interviewLink && ['invited', 'pending'].includes(profile.status) && (
                                         <div className="bg-indigo-600 rounded-xl p-5 text-white relative overflow-hidden">
                                             <div className="absolute -right-4 -bottom-4 opacity-10"><BriefcaseBusiness size={80} /></div>
                                             <div className="relative">
-                                                <div className="bg-white/20 w-9 h-9 rounded-lg flex items-center justify-center mb-3">
-                                                    <Calendar size={18} />
+                                                <div className="flex justify-between items-start mb-3">
+                                                    <div className="bg-white/20 w-9 h-9 rounded-lg flex items-center justify-center">
+                                                        <Calendar size={18} />
+                                                    </div>
+                                                    <span className="px-2 py-0.5 bg-white/20 text-white rounded text-[10px] font-bold border border-white/30 uppercase">
+                                                        {profile.status}
+                                                    </span>
                                                 </div>
                                                 <h3 className="font-bold mb-1">Interview Ready</h3>
                                                 <p className="text-white/75 text-xs mb-4">You have an active interview session waiting.</p>

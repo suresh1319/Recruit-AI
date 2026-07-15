@@ -1,20 +1,10 @@
+import mongoose from 'mongoose';
 import Job from '../models/Job.js';
 import Candidate from '../models/Candidate.js';
 import Interview from '../models/Interview.js';
 import connectDB from '../db/connect.js';
 import { ai, GEMINI_TEXT_MODEL } from '../config/ai.js';
-
-export const createJob = async (req, res) => {
-    try {
-        await connectDB();
-        if (!req.body.clerkId) return res.status(400).json({ error: 'clerkId is required' });
-        const job = await Job.create(req.body);
-        res.status(201).json(job);
-    } catch (error) {
-        console.error('Create job error:', error);
-        res.status(500).json({ error: 'Failed to create job' });
-    }
-};
+import { sendEmail } from '../utils/sendEmail.js';
 
 const extractJSON = (text) => {
     try {
@@ -32,6 +22,17 @@ const extractJSON = (text) => {
     } catch (e) {
         console.error('JSON Extraction failed:', e, 'Raw text:', text);
         return null;
+    }
+};
+export const createJob = async (req, res) => {
+    try {
+        await connectDB();
+        if (!req.body.clerkId) return res.status(400).json({ error: 'clerkId is required' });
+        const job = await Job.create(req.body);
+        res.status(201).json(job);
+    } catch (error) {
+        console.error('Create job error:', error);
+        res.status(500).json({ error: 'Failed to create job' });
     }
 };
 
@@ -144,6 +145,13 @@ Score above 50 means a reasonable fit.`;
         if (score > 75 && !job.candidatesMatched.some(id => id.toString() === candidate._id.toString())) {
             job.candidatesMatched.push(candidate._id);
             await job.save();
+
+            // Send shortlist email
+            const subject = `Congratulations! Shortlisted — ${job.title}`;
+            const text = `Hi ${candidate.name || 'there'},\n\nGreat news! Your profile has been shortlisted for the ${job.title} position at RecruitAI.\n\nWe will reach out to you shortly with the next steps regarding your interview process.\n\nBest regards,\nRecruitAI Team`;
+            const html = `<p>Hi ${candidate.name || 'there'},</p><p>Great news! Your profile has been shortlisted for the <strong>${job.title}</strong> position at RecruitAI.</p><p>We will reach out to you shortly with the next steps regarding your interview process.</p><p>Best regards,<br/>RecruitAI Team</p>`;
+            sendEmail(candidate.email, subject, text, html).catch(err => console.error('Error sending shortlist email:', err.message));
+
         } else if (score <= 50 && job.candidatesApplied.some(id => id.toString() === candidate._id.toString())) {
             // Low score — mark auto-rejected
             candidate.status = 'rejected';
@@ -159,6 +167,12 @@ Score above 50 means a reasonable fit.`;
             } else {
                 candidate.applications[appIndex].status = 'rejected';
             }
+
+            // Send rejection email
+            const subject = `Application Update — ${job.title}`;
+            const text = `Hi ${candidate.name || 'there'},\n\nThank you for your interest in the ${job.title} position. After careful consideration, we regret to inform you that we will not be moving forward with your application at this time.\n\nWe appreciate the time you took to apply and wish you the best in your job search.\n\nBest regards,\nRecruitAI Team`;
+            const html = `<p>Hi ${candidate.name || 'there'},</p><p>Thank you for your interest in the <strong>${job.title}</strong> position. After careful consideration, we regret to inform you that we will not be moving forward with your application at this time.</p><p>We appreciate the time you took to apply and wish you the best in your job search.</p><p>Best regards,<br/>RecruitAI Team</p>`;
+            sendEmail(candidate.email, subject, text, html).catch(err => console.error('Error sending rejection email:', err.message));
         }
 
         await candidate.save();
@@ -330,6 +344,13 @@ export const updateJob = async (req, res) => {
 export const matchCandidates = async (req, res) => {
     try {
         await connectDB();
+        
+        // Auto-heal any invalid status strings in the database
+        await Candidate.updateMany(
+            { status: 'Screening Pending' },
+            { $set: { status: 'pending' } }
+        );
+
         const job = await Job.findById(req.params.jobId);
         if (!job) return res.status(404).json({ error: 'Job not found' });
 
@@ -369,14 +390,31 @@ Only include candidates with matchScore > 50.`;
         let rejectedCount = 0;
         const matchedIds = [];
         await Promise.all(allMatches.map(async (m) => {
-            const c = await Candidate.findById(m.candidateId);
+            const candidateId = m.candidateId || m.id;
+            if (!candidateId || !mongoose.Types.ObjectId.isValid(candidateId)) return;
+
+            const c = await Candidate.findById(candidateId);
             if (!c) return;
-            const idx = c.jobMatchScores.findIndex(s => s.jobId.toString() === job._id.toString());
-            if (idx >= 0) c.jobMatchScores[idx].score = m.matchScore;
-            else c.jobMatchScores.push({ jobId: job._id, score: m.matchScore });
-            if (m.matchScore > 75) {
+
+            if (!c.jobMatchScores) c.jobMatchScores = [];
+            const idx = c.jobMatchScores.findIndex(s => s.jobId && s.jobId.toString() === job._id.toString());
+            
+            const scoreNum = Number(m.matchScore) || 0;
+            if (idx >= 0) c.jobMatchScores[idx].score = scoreNum;
+            else c.jobMatchScores.push({ jobId: job._id, score: scoreNum });
+
+            if (scoreNum > 75) {
+                const wasMatched = job.candidatesMatched.some(id => id && id.toString() === c._id.toString());
                 matchedIds.push(c._id);
-            } else if (m.matchScore <= 50 && job.candidatesApplied.some(id => id.toString() === c._id.toString())) {
+                if (!wasMatched) {
+                    // Send shortlist email
+                    const subject = `Congratulations! Shortlisted — ${job.title}`;
+                    const text = `Hi ${c.name || 'there'},\n\nGreat news! Your profile has been shortlisted for the ${job.title} position at RecruitAI.\n\nWe will reach out to you shortly with the next steps regarding your interview process.\n\nBest regards,\nRecruitAI Team`;
+                    const html = `<p>Hi ${c.name || 'there'},</p><p>Great news! Your profile has been shortlisted for the <strong>${job.title}</strong> position at RecruitAI.</p><p>We will reach out to you shortly with the next steps regarding your interview process.</p><p>Best regards,<br/>RecruitAI Team</p>`;
+                    sendEmail(c.email, subject, text, html).catch(err => console.error('Error sending shortlist email:', err.message));
+                }
+            } else if (scoreNum <= 50 && job.candidatesApplied && job.candidatesApplied.some(id => id && id.toString() === c._id.toString())) {
+                const wasRejected = c.status === 'rejected';
                 // Low score — auto-reject, but keep in candidatesApplied so recruiter sees them
                 c.status = 'rejected';
                 if (!c.applications) {
@@ -392,6 +430,14 @@ Only include candidates with matchScore > 50.`;
                     c.applications[appIndex].status = 'rejected';
                 }
                 rejectedCount++;
+
+                if (!wasRejected) {
+                    // Send rejection email
+                    const subject = `Application Update — ${job.title}`;
+                    const text = `Hi ${c.name || 'there'},\n\nThank you for your interest in the ${job.title} position. After careful consideration, we regret to inform you that we will not be moving forward with your application at this time.\n\nWe appreciate the time you took to apply and wish you the best in your job search.\n\nBest regards,\nRecruitAI Team`;
+                    const html = `<p>Hi ${c.name || 'there'},</p><p>Thank you for your interest in the <strong>${job.title}</strong> position. After careful consideration, we regret to inform you that we will not be moving forward with your application at this time.</p><p>We appreciate the time you took to apply and wish you the best in your job search.</p><p>Best regards,<br/>RecruitAI Team</p>`;
+                    sendEmail(c.email, subject, text, html).catch(err => console.error('Error sending rejection email:', err.message));
+                }
             }
             await c.save();
         }));
