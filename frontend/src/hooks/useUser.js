@@ -40,24 +40,47 @@ export function useClerk() {
     const mockClerkId = localStorage.getItem('mock_clerk_id');
     const clerk = useClerkOriginal();
 
-    const mockClerkObj = useMemo(() => {
-        if (!mockClerkId) return null;
+    return useMemo(() => {
+        if (mockClerkId) {
+            return {
+                ...clerk,
+                signOut: (callback) => {
+                    localStorage.removeItem('mock_clerk_id');
+                    localStorage.removeItem('mock_clerk_email');
+                    localStorage.removeItem('mock_clerk_first_name');
+                    localStorage.removeItem('mock_clerk_last_name');
+                    localStorage.removeItem('mock_clerk_role');
+                    localStorage.removeItem('preferred_role');
+                    if (typeof callback === 'function') {
+                        callback();
+                    } else if (typeof callback === 'object' && callback?.redirectUrl) {
+                        window.location.href = callback.redirectUrl;
+                    } else {
+                        window.location.href = '/sign-in';
+                    }
+                }
+            };
+        }
+
         return {
             ...clerk,
-            signOut: (callback) => {
-                localStorage.removeItem('mock_clerk_id');
-                localStorage.removeItem('mock_clerk_email');
-                localStorage.removeItem('mock_clerk_first_name');
-                localStorage.removeItem('mock_clerk_last_name');
-                localStorage.removeItem('mock_clerk_role');
-                if (callback) callback();
+            signOut: async (callback) => {
+                localStorage.removeItem('preferred_role');
+                try {
+                    if (clerk && clerk.signOut) {
+                        await clerk.signOut();
+                    }
+                } catch (e) {
+                    console.error("Clerk signOut error:", e);
+                }
+                if (typeof callback === 'function') {
+                    callback();
+                } else if (typeof callback === 'object' && callback?.redirectUrl) {
+                    window.location.href = callback.redirectUrl;
+                } else {
+                    window.location.href = '/sign-in';
+                }
             }
         };
     }, [mockClerkId, clerk]);
-
-    if (mockClerkId) {
-        return mockClerkObj;
-    }
-
-    return clerk;
 }

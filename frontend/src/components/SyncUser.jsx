@@ -16,19 +16,31 @@ export default function SyncUser() {
                 try {
                     const preferredRole = localStorage.getItem('preferred_role');
 
+                    const primaryEmail = user.primaryEmailAddress?.emailAddress ||
+                        user.emailAddresses?.[0]?.emailAddress ||
+                        (typeof user.email === 'string' ? user.email : '');
+
+                    const payload = {
+                        id: user.id,
+                        firstName: user.firstName || '',
+                        lastName: user.lastName || '',
+                        imageUrl: user.imageUrl || '',
+                        email: primaryEmail,
+                        emailAddresses: primaryEmail ? [{ emailAddress: primaryEmail }] : [],
+                        publicMetadata: user.publicMetadata || {},
+                        role: preferredRole || user.publicMetadata?.role
+                    };
+
                     const response = await fetch(`${API_BASE_URL}/api/users/sync`, {
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({
-                            ...user,
-                            role: preferredRole
-                        }),
+                        body: JSON.stringify(payload),
                     });
 
                     const data = await response.json();
                     if (preferredRole) localStorage.removeItem('preferred_role');
 
-                    const currentRole = data.user?.role;
+                    const currentRole = data.user?.role || preferredRole;
                     const path = location.pathname;
 
                     // Redirection Rules

@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { SignOutButton } from '@clerk/clerk-react';
-import { useUser } from '@/hooks/useUser';
+import { useUser, useClerk } from '@/hooks/useUser';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '@/components/ui/button';
@@ -45,6 +44,7 @@ function sanitizeInterviewLink(rawLink) {
 
 export default function CandidateDashboard() {
     const { user, isLoaded } = useUser();
+    const { signOut } = useClerk();
     const navigate = useNavigate();
     const location = useLocation();
     const { theme, setTheme } = useTheme();
@@ -413,11 +413,13 @@ export default function CandidateDashboard() {
                                 {user?.fullName || user?.firstName || 'User'}
                             </span>
                         </div>
-                        <SignOutButton>
-                            <button className="text-slate-400 dark:text-slate-500 hover:text-red-500 dark:hover:text-red-400 transition-colors p-2 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/30">
-                                <LogOut size={18} />
-                            </button>
-                        </SignOutButton>
+                        <button 
+                            onClick={() => signOut(() => navigate('/sign-in'))}
+                            className="text-slate-400 dark:text-slate-500 hover:text-red-500 dark:hover:text-red-400 transition-colors p-2 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/30"
+                            title="Log Out"
+                        >
+                            <LogOut size={18} />
+                        </button>
                     </div>
                     
                     {/* Mobile Toggle Button */}
@@ -481,11 +483,12 @@ export default function CandidateDashboard() {
                                         {user?.fullName || user?.firstName || 'User'}
                                     </span>
                                 </div>
-                                <SignOutButton>
-                                    <button className="flex items-center gap-2 text-sm text-red-500 font-semibold px-3 py-2 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/30">
-                                        <LogOut size={16} /> Sign out
-                                    </button>
-                                </SignOutButton>
+                                <button 
+                                    onClick={() => signOut(() => navigate('/sign-in'))}
+                                    className="flex items-center gap-2 text-sm text-red-500 font-semibold px-3 py-2 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/30"
+                                >
+                                    <LogOut size={16} /> Sign out
+                                </button>
                             </div>
                         </div>
                     </div>

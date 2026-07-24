@@ -4,13 +4,23 @@ import connectDB from '../db/connect.js';
 
 export const syncUser = async (req, res) => {
     try {
-        const { id, email_addresses, first_name, last_name, image_url, public_metadata, firstName, lastName, imageUrl, emailAddresses, role } = req.body;
+        const { id, email_addresses, first_name, last_name, image_url, public_metadata, firstName, lastName, imageUrl, emailAddresses, primaryEmailAddress, email, role } = req.body;
 
         const actualId = id;
         const actualFirstName = first_name || firstName || '';
         const actualLastName = last_name || lastName || '';
         const actualImageUrl = image_url || imageUrl || '';
-        const primaryEmail = (email_addresses && email_addresses[0]?.email_address) || (emailAddresses && emailAddresses[0]?.emailAddress) || '';
+        
+        let primaryEmail = email || '';
+        if (!primaryEmail && email_addresses && email_addresses[0]?.email_address) {
+            primaryEmail = email_addresses[0].email_address;
+        }
+        if (!primaryEmail && emailAddresses && emailAddresses[0]?.emailAddress) {
+            primaryEmail = emailAddresses[0].emailAddress;
+        }
+        if (!primaryEmail && primaryEmailAddress) {
+            primaryEmail = typeof primaryEmailAddress === 'string' ? primaryEmailAddress : (primaryEmailAddress.emailAddress || '');
+        }
 
         if (!actualId) return res.status(400).json({ error: 'Missing Clerk ID' });
 
@@ -34,22 +44,28 @@ export const syncUser = async (req, res) => {
             }
         }
 
-        if (user) {
-            // Update fields but preserve existing role to prevent coincide/switch
-            user.email = primaryEmail || user.email;
-            user.firstName = actualFirstName || user.firstName;
-            user.lastName = actualLastName || user.lastName;
-            user.imageUrl = actualImageUrl || user.imageUrl;
+        const fallbackEmail = `user-${actualId}@recruitai.internal`;
+        const finalEmail = (primaryEmail && primaryEmail.trim() !== '') 
+            ? primaryEmail 
+            : ((user && user.email && user.email.trim() !== '') ? user.email : fallbackEmail);
 
-            if (!user.role && roleUpdate.role) {
+        if (user) {
+            user.email = finalEmail;
+            if (actualFirstName) user.firstName = actualFirstName;
+            if (actualLastName) user.lastName = actualLastName;
+            if (actualImageUrl) user.imageUrl = actualImageUrl;
+
+            if (roleUpdate.role) {
                 user.role = roleUpdate.role;
+            } else if (!user.role) {
+                user.role = 'candidate';
             }
             await user.save();
         } else {
             // Create new user
             const createFields = {
                 clerkId: actualId,
-                email: primaryEmail,
+                email: finalEmail,
                 firstName: actualFirstName,
                 lastName: actualLastName,
                 imageUrl: actualImageUrl,
@@ -72,8 +88,8 @@ export const syncUser = async (req, res) => {
                 { clerkId: actualId },
                 {
                     clerkId: actualId,
-                    name: `${actualFirstName} ${actualLastName}`.trim(),
-                    email: primaryEmail
+                    name: `${actualFirstName} ${actualLastName}`.trim() || 'Candidate',
+                    email: finalEmail
                 },
                 { upsert: true }
             );
@@ -85,7 +101,7 @@ export const syncUser = async (req, res) => {
         res.status(200).json({ message: 'User synced successfully', user });
     } catch (error) {
         console.error('User sync error:', error);
-        res.status(500).json({ error: 'Failed to sync user' });
+        res.status(500).json({ error: 'Failed to sync user: ' + (error.message || error) });
     }
 };
 
